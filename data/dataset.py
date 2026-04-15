@@ -186,3 +186,77 @@ class LunarMultimodalDataset(Dataset):
         n_rows = (self.H - self.patch_size) // self.stride + 1
         n_cols = (self.W - self.patch_size) // self.stride + 1
         return n_rows, n_cols
+
+
+class EndmemberLibrary:
+    """
+    Loads and manages the RELAB/USGS reference endmember spectra for
+    6 dominant lunar minerals, resampled to IIRS band positions.
+
+    Minerals:
+        0 - low-Ca pyroxene (orthopyroxene)
+        1 - high-Ca pyroxene (clinopyroxene)
+        2 - olivine
+        3 - plagioclase feldspar
+        4 - ilmenite
+        5 - Mg-spinel
+    """
+
+    MINERAL_NAMES = [
+        "Low-Ca Pyroxene",
+        "High-Ca Pyroxene",
+        "Olivine",
+        "Plagioclase",
+        "Ilmenite",
+        "Mg-Spinel",
+    ]
+
+    def __init__(self, endmember_path: str, n_bands: int = 86):
+        """
+        Args:
+            endmember_path: Path to .npy file of shape (6, n_bands_original)
+                            containing RELAB spectra resampled to IIRS wavelengths.
+            n_bands: Number of IIRS bands used (should match dataset).
+        """
+        if not os.path.exists(endmember_path):
+            raise FileNotFoundError(
+                f"Endmember library not found at {endmember_path}. "
+                "See scripts/prepare_endmembers.py to generate from RELAB data."
+            )
+        data = np.load(endmember_path)  # (6, n_bands)
+        assert data.shape[0] == 6, f"Expected 6 endmembers, got {data.shape[0]}"
+
+        # L2-normalize each endmember spectrum
+        norms = np.linalg.norm(data, axis=1, keepdims=True)
+        self.spectra = (data / (norms + 1e-8)).astype(np.float32)  # (6, n_bands)
+        self.n_minerals = 6
+
+    def as_tensor(self) -> torch.Tensor:
+        """Returns endmember matrix as tensor (6, n_bands)."""
+        return torch.from_numpy(self.spectra)
+
+    def identify(
+        self, cluster_spectra: np.ndarray, sam_threshold: float = 0.15
+    ) -> List[Optional[int]]:
+        """
+        Identifies each cluster's dominant mineral via SAM distance to endmembers.
+
+        Args:
+            cluster_spectra: (n_clusters, n_bands) mean spectra per cluster.
+            sam_threshold: SAM distance (radians) cutoff. Above this = unidentified.
+
+        Returns:
+            List of mineral indices (or None if unidentified) for each cluster.
+        """
+        n_clusters = cluster_spectra.shape[0]
+        assignments = []
+        for i in range(n_clusters):
+            spec = cluster_spectra[i]
+            spec_norm = spec / (np.linalg.norm(spec) + 1e-8)
+            sams = []
+            for em in self.spectra:
+                cos = np.clip(np.dot(spec_norm, em), -1.0, 1.0)
+                sams.append(np.arccos(cos))
+            best_idx = int(np.argmin(sams))
+            assignments.append(best_idx if sams[best_idx] < sam_threshold else None)
+        return assignments
