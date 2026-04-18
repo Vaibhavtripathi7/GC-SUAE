@@ -139,3 +139,120 @@ class Unimodal3DCNN(nn.Module):
         z = self.fc_enc(self.spatial_enc(x).flatten(1))
         recon = self.decoder(self.fc_dec(z).view(z.size(0), 64, self._ps4, self._ps4))
         return recon, z
+
+
+# Baseline 3: Early-fusion autoencoder
+
+class EarlyFusionAE(nn.Module):
+    """
+    All modalities stacked channel-wise before encoding. Simple but loses
+    modality-specific characteristics; spectral bands get diluted by DEM/FeO.
+    """
+    def __init__(self, n_bands: int = 86, latent_dim: int = 64, patch_size: int = 64):
+        super().__init__()
+        in_ch = n_bands + 2  # IIRS + DEM + FeO
+        self.encoder = nn.Sequential(
+            ConvBnRelu(in_ch, 128), nn.MaxPool2d(2),
+            ConvBnRelu(128, 64),    nn.AdaptiveAvgPool2d(1),
+        )
+        self.fc_enc = nn.Linear(64, latent_dim)
+        ps4 = patch_size // 4
+        self.fc_dec = nn.Linear(latent_dim, 64 * ps4 * ps4)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(64, 128, 4, stride=2, padding=1),
+            nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, n_bands, 4, stride=2, padding=1),
+            nn.Sigmoid(),
+        )
+        self._ps4 = ps4
+
+    def forward(self, batch: Dict) -> Tuple[torch.Tensor, torch.Tensor]:
+        x = torch.cat([batch["iirs"], batch["dem"], batch["feo"]], dim=1)
+        z = self.fc_enc(self.encoder(x).flatten(1))
+        recon = self.decoder(self.fc_dec(z).view(z.size(0), 64, self._ps4, self._ps4))
+        return recon, z
+
+
+# Baseline 4: Late-fusion autoencoder
+
+class LateFusionAE(nn.Module):
+    """
+    Each modality encoded independently, feature vectors concatenated and
+    projected. No inter-modal attention; context modalities don't guide
+    spectral encoding.
+    """
+    def __init__(self, n_bands: int = 86, latent_dim: int = 64, patch_size: int = 64):
+        super().__init__()
+        self.iirs_enc = nn.Sequential(
+            ConvBnRelu(n_bands, 128), nn.MaxPool2d(2),
+            ConvBnRelu(128, 64),      nn.AdaptiveAvgPool2d(1),
+        )
+        self.aux_enc = nn.Sequential(
+            ConvBnRelu(1, 16), nn.MaxPool2d(2),
+            ConvBnRelu(16, 32), nn.AdaptiveAvgPool2d(1),
+        )
+        self.fusion = nn.Sequential(
+            nn.Linear(64 + 32 + 32, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, latent_dim),
+        )
+        ps4 = patch_size // 4
+        self.fc_dec = nn.Linear(latent_dim, 64 * ps4 * ps4)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(64, 128, 4, stride=2, padding=1),
+            nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, n_bands, 4, stride=2, padding=1),
+            nn.Sigmoid(),
+        )
+        self._ps4 = ps4
+
+    def forward(self, batch: Dict) -> Tuple[torch.Tensor, torch.Tensor]:
+        v_iirs = self.iirs_enc(batch["iirs"]).flatten(1)
+        v_dem  = self.aux_enc(batch["dem"]).flatten(1)
+        v_feo  = self.aux_enc(batch["feo"]).flatten(1)
+        z = self.fusion(torch.cat([v_iirs, v_dem, v_feo], dim=1))
+        recon = self.decoder(self.fc_dec(z).view(z.size(0), 64, self._ps4, self._ps4))
+        return recon, z
+
+
+# Baseline 5: TRIAD (pooled-vector attention)
+
+class TRIAD(nn.Module):
+    """
+    Original TRIAD architecture from the prior codebase.
+    Cross-modal MultiheadAttention on globally-pooled 1D feature vectors.
+    Included as Baseline 5 to show improvement from spatial attention.
+    """
+    def __init__(self, n_bands: int = 86, latent_dim: int = 64, patch_size: int = 64):
+        super().__init__()
+        self.iirs_enc = nn.Sequential(
+            ConvBnRelu(n_bands, 128), nn.MaxPool2d(2),
+            ConvBnRelu(128, 64), nn.AdaptiveAvgPool2d(1),
+        )
+        self.iirs_proj = nn.Linear(64, 256)
+        self.aux_enc = nn.Sequential(
+            ConvBnRelu(1, 16), nn.AdaptiveAvgPool2d(1),
+        )
+        self.aux_proj = nn.Linear(16, 256)
+        self.attention = nn.MultiheadAttention(256, num_heads=4, batch_first=True)
+        self.latent_proj = nn.Linear(256, latent_dim)
+
+        ps4 = patch_size // 4
+        self.fc_dec = nn.Linear(latent_dim, 64 * ps4 * ps4)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(64, 128, 4, stride=2, padding=1),
+            nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, n_bands, 4, stride=2, padding=1),
+            nn.Sigmoid(),
+        )
+        self._ps4 = ps4
+
+    def forward(self, batch: Dict) -> Tuple[torch.Tensor, torch.Tensor]:
+        q = self.iirs_proj(self.iirs_enc(batch["iirs"]).flatten(1)).unsqueeze(1)
+        k_dem = self.aux_proj(self.aux_enc(batch["dem"]).flatten(1)).unsqueeze(1)
+        k_feo = self.aux_proj(self.aux_enc(batch["feo"]).flatten(1)).unsqueeze(1)
+        kv = torch.cat([k_dem, k_feo], dim=1)
+        fused, _ = self.attention(q, kv, kv)
+        z = self.latent_proj(fused.squeeze(1))
+        recon = self.decoder(self.fc_dec(z).view(z.size(0), 64, self._ps4, self._ps4))
+        return recon, z
