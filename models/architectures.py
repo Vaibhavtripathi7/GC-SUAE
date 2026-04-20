@@ -256,3 +256,73 @@ class TRIAD(nn.Module):
         z = self.latent_proj(fused.squeeze(1))
         recon = self.decoder(self.fc_dec(z).view(z.size(0), 64, self._ps4, self._ps4))
         return recon, z
+
+
+# Proposed model: GC-SUAE (Geologically-Constrained Spectral Unmixing Autoencoder)
+
+class SpatialSpectralEncoder(nn.Module):
+    """
+    Encodes IIRS hyperspectral data into a spatial feature map (h×w×C),
+    preserving spatial structure via residual blocks rather than pooling.
+    """
+    def __init__(self, n_bands: int = 86, out_channels: int = 256):
+        super().__init__()
+        self.stem = ConvBnRelu(n_bands, 128, k=1, p=0)  # 1×1 spectral mixing
+        self.stage1 = nn.Sequential(
+            ConvBnRelu(128, 128),
+            ResidualBlock(128),
+            nn.MaxPool2d(2),
+        )
+        self.stage2 = nn.Sequential(
+            ConvBnRelu(128, out_channels),
+            ResidualBlock(out_channels),
+            nn.MaxPool2d(2),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Returns (B, C, H/4, W/4) feature map."""
+        return self.stage2(self.stage1(self.stem(x)))
+
+
+class TerrainEncoder(nn.Module):
+    """
+    Encodes terrain modality into a spatial feature map (H/4 × W/4 × C).
+
+    Input: 3 channels - [normalized DEM elevation, Sobel slope magnitude,
+           Sobel aspect angle] - precomputed in dataset.py as physics-derived
+           features. The encoder learns to extract mineralogically-relevant
+           terrain patterns from these gradient-based inputs.
+    """
+    def __init__(self, out_channels: int = 128):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            ConvBnRelu(3, 32),
+            ResidualBlock(32),
+            nn.MaxPool2d(2),
+            ConvBnRelu(32, 64),
+            ResidualBlock(64),
+            nn.MaxPool2d(2),
+            ConvBnRelu(64, out_channels),
+        )
+
+    def forward(self, dem: torch.Tensor, slope: torch.Tensor, aspect: torch.Tensor) -> torch.Tensor:
+        """Returns (B, C, H/4, W/4) terrain feature map."""
+        x = torch.cat([dem, slope, aspect], dim=1)
+        return self.encoder(x)
+
+
+class GeochemicalEncoder(nn.Module):
+    """Encodes FeO abundance map to spatial feature map."""
+    def __init__(self, out_channels: int = 128):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            ConvBnRelu(1, 32),
+            ResidualBlock(32),
+            nn.MaxPool2d(2),
+            ConvBnRelu(32, out_channels),
+            ResidualBlock(out_channels),
+            nn.MaxPool2d(2),
+        )
+
+    def forward(self, feo: torch.Tensor) -> torch.Tensor:
+        return self.encoder(feo)
