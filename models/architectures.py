@@ -326,3 +326,61 @@ class GeochemicalEncoder(nn.Module):
 
     def forward(self, feo: torch.Tensor) -> torch.Tensor:
         return self.encoder(feo)
+
+
+class SpatialCrossAttention(nn.Module):
+    """
+    Spatial cross-attention between the IIRS feature map (query) and an
+    auxiliary modality map (DEM or FeO context), over full H×W feature maps
+    rather than pooled vectors. Each query position attends over all context
+    positions: softmax(QK^T / sqrt(d_head)) V, with a residual back to the query
+    so IIRS features are preserved.
+    """
+    def __init__(self, d_model: int = 256, n_heads: int = 8):
+        super().__init__()
+        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.d_head  = d_model // n_heads
+        self.scale   = self.d_head ** -0.5
+
+        self.q_proj   = nn.Conv2d(d_model, d_model, 1, bias=False)
+        self.k_proj   = nn.Conv2d(d_model, d_model, 1, bias=False)
+        self.v_proj   = nn.Conv2d(d_model, d_model, 1, bias=False)
+        self.out_proj = nn.Conv2d(d_model, d_model, 1, bias=False)
+        self.norm     = nn.GroupNorm(min(8, d_model // 16), d_model)
+
+    def forward(
+        self,
+        query:   torch.Tensor,  # (B, C, H, W) - IIRS spatial features
+        context: torch.Tensor,  # (B, C, H, W) - auxiliary modality features
+    ) -> torch.Tensor:
+        B, C, H, W = query.shape
+
+        q = self.q_proj(query)    # (B, C, H, W)
+        k = self.k_proj(context)
+        v = self.v_proj(context)
+
+        # Split heads: (B, C, H, W) → (B*n_heads, HW, d_head)
+        def to_heads(x):
+            return (x.view(B, self.n_heads, self.d_head, H * W)
+                     .permute(0, 1, 3, 2)            # (B, h, HW, d_head)
+                     .reshape(B * self.n_heads, H * W, self.d_head))
+
+        q_h = to_heads(q)
+        k_h = to_heads(k)
+        v_h = to_heads(v)
+
+        # Scaled dot-product attention
+        attn = torch.softmax(
+            torch.bmm(q_h, k_h.transpose(1, 2)) * self.scale, dim=-1
+        )                                             # (B*h, HW, HW)
+        out_h = torch.bmm(attn, v_h)                 # (B*h, HW, d_head)
+
+        # Merge heads back to spatial map
+        out = (out_h.reshape(B, self.n_heads, H * W, self.d_head)
+                    .permute(0, 1, 3, 2)              # (B, h, d_head, HW)
+                    .reshape(B, C, H, W))
+
+        # Residual + norm
+        return self.norm(self.out_proj(out) + query)
