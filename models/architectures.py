@@ -384,3 +384,116 @@ class SpatialCrossAttention(nn.Module):
 
         # Residual + norm
         return self.norm(self.out_proj(out) + query)
+
+
+class LMMDecoder(nn.Module):
+    """
+    Physics-Constrained Decoder implementing the Linear Mixing Model (LMM).
+
+    The LMM states: r = E · a
+    where:
+        r ∈ [0,1]^{n_bands}  - observed reflectance at a pixel
+        E ∈ [0,1]^{K×n_bands} - endmember spectral matrix (K minerals)
+        a ∈ Δ^{K-1}          - abundance simplex (ANC + ASC)
+
+    Constraints:
+        ANC: a_k ≥ 0  for all k  (Abundance Non-Negativity)
+        ASC: Σ_k a_k = 1         (Abundance Sum-to-One)
+        E bounded to [0,1]       (physical reflectance range)
+
+    Key design decisions:
+        - softplus(·) for ANC: avoids dead-neuron problem of ReLU, smooth gradient
+        - ASC via L1 normalization: exact, differentiable
+        - E = sigmoid(raw_E): keeps endmembers in [0,1] without extra loss terms
+        - NO sigmoid on final output: r = E·a is already in [0,1] when E∈[0,1], a∈Δ
+    """
+    def __init__(
+        self,
+        latent_dim: int = 128,
+        n_minerals: int = 6,
+        n_bands: int = 86,
+        patch_size: int = 64,
+    ):
+        super().__init__()
+        self.n_minerals = n_minerals
+        self.n_bands    = n_bands
+        ps4 = patch_size // 4
+        self._ps4 = ps4
+
+        # Latent → spatial abundance map
+        self.fc_expand = nn.Linear(latent_dim, 256 * ps4 * ps4)
+        self.upsample = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, 4, stride=2, padding=1),
+            nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, n_minerals, 4, stride=2, padding=1),
+        )
+
+        # Raw (unconstrained) endmember parameter; E = sigmoid(raw_E) ensures [0,1]
+        # Initialize to approximate flat spectrum (sigmoid(0) = 0.5)
+        self.raw_endmember_matrix = nn.Parameter(
+            torch.zeros(n_minerals, n_bands)
+        )
+
+    @property
+    def endmember_matrix(self) -> torch.Tensor:
+        """Constrained endmember matrix E ∈ [0,1]^{K × n_bands}."""
+        return torch.sigmoid(self.raw_endmember_matrix)
+
+    def get_abundances(self, z: torch.Tensor) -> torch.Tensor:
+        """
+        Returns per-pixel mineral abundances: (B, n_minerals, H, W)
+        satisfying ANC (softplus ≥ 0) and ASC (L1 normalized to sum = 1).
+        """
+        x   = self.fc_expand(z).view(z.size(0), 256, self._ps4, self._ps4)
+        raw = self.upsample(x)                              # (B, K, H, W)
+        anc = F.softplus(raw)                               # smooth ANC
+        asc = anc / (anc.sum(dim=1, keepdim=True) + 1e-8)  # exact ASC
+        return asc
+
+    def forward(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Returns:
+            recon:      (B, n_bands, H, W)  - reconstructed reflectance via LMM
+            abundances: (B, n_minerals, H, W) - interpretable mineral fractions
+            E:          (n_minerals, n_bands) - constrained endmember matrix
+        """
+        abundances = self.get_abundances(z)          # (B, K, H, W)
+        E          = self.endmember_matrix            # (K, n_bands)  ∈ [0,1]
+
+        # r = E^T · a  at each pixel (linear mixing - no sigmoid needed)
+        B, K, H, W = abundances.shape
+        a_flat     = abundances.permute(0, 2, 3, 1).reshape(-1, K)   # (B·H·W, K)
+        recon_flat = torch.mm(a_flat, E)                               # (B·H·W, n_bands)
+        recon      = recon_flat.view(B, H, W, self.n_bands).permute(0, 3, 1, 2)
+        # recon is in [0,1]: linear combination of [0,1] spectra with weights in [0,1] summing to 1
+        return recon, abundances, E
+
+
+class AuxiliaryDecoder(nn.Module):
+    """
+    Auxiliary decoder heads for FeO prediction and DEM gradient reconstruction.
+    Provides additional supervised signal during training.
+    """
+    def __init__(self, latent_dim: int = 128, patch_size: int = 64):
+        super().__init__()
+        ps4 = patch_size // 4
+
+        self.feo_head = nn.Sequential(
+            nn.Linear(latent_dim, 64 * ps4 * ps4),
+            nn.Unflatten(1, (64, ps4, ps4)),
+            nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(32, 1, 4, stride=2, padding=1),
+            nn.Sigmoid(),
+        )
+        self.dem_head = nn.Sequential(
+            nn.Linear(latent_dim, 64 * ps4 * ps4),
+            nn.Unflatten(1, (64, ps4, ps4)),
+            nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(32, 1, 4, stride=2, padding=1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.feo_head(z), self.dem_head(z)
