@@ -497,3 +497,113 @@ class AuxiliaryDecoder(nn.Module):
 
     def forward(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.feo_head(z), self.dem_head(z)
+
+
+class GC_SUAE(nn.Module):
+    """
+    Geologically-Constrained Spectral Unmixing Autoencoder.
+
+    Keeps spatial feature maps through the encoder, fuses IIRS with DEM/FeO via
+    spatial cross-attention, and decodes through an LMM-constrained head plus
+    auxiliary FeO/DEM heads. Trained with the TAGCL loss (losses/tagcl.py).
+    """
+
+    def __init__(
+        self,
+        n_bands: int = 86,
+        latent_dim: int = 128,
+        n_minerals: int = 6,
+        patch_size: int = 64,
+        d_model: int = 256,
+        n_heads: int = 8,
+        n_deform_points: int = 4,
+    ):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.n_minerals = n_minerals
+
+        # Encoders
+        self.iirs_encoder   = SpatialSpectralEncoder(n_bands, out_channels=d_model)
+        self.terrain_encoder = TerrainEncoder(out_channels=d_model // 2)
+        self.feo_encoder    = GeochemicalEncoder(out_channels=d_model // 2)
+
+        # Project aux encoders to d_model for attention
+        self.terrain_proj = nn.Conv2d(d_model // 2, d_model, 1)
+        self.feo_proj     = nn.Conv2d(d_model // 2, d_model, 1)
+
+        # Deformable cross-attention fusion (two stages)
+        self.attn_terrain = SpatialCrossAttention(d_model, n_heads)
+        self.attn_feo     = SpatialCrossAttention(d_model, n_heads)
+
+        # Bottleneck: spatial feature map → latent vector
+        self.bottleneck = nn.Sequential(
+            ConvBnRelu(d_model, d_model // 2),
+            nn.AdaptiveAvgPool2d(1),
+        )
+        self.fc_latent = nn.Linear(d_model // 2, latent_dim)
+
+        # Decoders
+        self.lmm_decoder = LMMDecoder(latent_dim, n_minerals, n_bands, patch_size)
+        self.aux_decoder  = AuxiliaryDecoder(latent_dim, patch_size)
+
+    def encode(self, batch: Dict) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returns:
+            z:        (B, latent_dim) - latent vector
+            f_fused:  (B, d_model, h, w) - spatial fused feature map
+        """
+        f_iirs    = self.iirs_encoder(batch["iirs"])
+        f_terrain = self.terrain_proj(
+            self.terrain_encoder(batch["dem"], batch["slope"], batch["aspect"])
+        )
+        f_feo = self.feo_proj(self.feo_encoder(batch["feo"]))
+
+        # Two-stage spatial cross-attention
+        f_fused = self.attn_terrain(f_iirs, f_terrain)
+        f_fused = self.attn_feo(f_fused, f_feo)
+
+        z = self.fc_latent(self.bottleneck(f_fused).flatten(1))
+        return z, f_fused
+
+    def forward(self, batch: Dict) -> Dict[str, torch.Tensor]:
+        z, f_fused = self.encode(batch)
+
+        # Main reconstruction via LMM (returns recon, abundances, E)
+        recon_iirs, abundances, E = self.lmm_decoder(z)
+
+        # Auxiliary predictions
+        recon_feo, recon_dem = self.aux_decoder(z)
+
+        return {
+            "recon_iirs":       recon_iirs,   # (B, n_bands, H, W)
+            "abundances":       abundances,   # (B, n_minerals, H, W) - interpretable
+            "endmember_matrix": E,            # (n_minerals, n_bands) - for LMM loss
+            "recon_feo":        recon_feo,    # (B, 1, H, W)
+            "recon_dem":        recon_dem,    # (B, 1, H, W)
+            "latent":           z,            # (B, latent_dim)
+            "fused_feat":       f_fused,      # (B, C, h, w) - for TAGCL
+        }
+
+
+def build_model(model_name: str, cfg: dict) -> nn.Module:
+    """Factory function for all model variants."""
+    n_bands     = cfg.get("n_bands", 86)
+    latent_dim  = cfg.get("latent_dim", 64)
+    patch_size  = cfg.get("patch_size", 64)
+    n_minerals  = cfg.get("n_minerals", 6)
+
+    models = {
+        "Unimodal2DCNN": Unimodal2DCNN(n_bands, latent_dim, patch_size),
+        "Unimodal3DCNN": Unimodal3DCNN(n_bands, latent_dim, patch_size),
+        "EarlyFusion":   EarlyFusionAE(n_bands, latent_dim, patch_size),
+        "LateFusion":    LateFusionAE(n_bands, latent_dim, patch_size),
+        "TRIAD":         TRIAD(n_bands, latent_dim, patch_size),
+        "GC_SUAE":       GC_SUAE(
+            n_bands, latent_dim, n_minerals, patch_size,
+            d_model=cfg.get("d_model", 256),
+            n_heads=cfg.get("n_heads", 8),
+        ),
+    }
+    if model_name not in models:
+        raise ValueError(f"Unknown model: {model_name}. Choose from {list(models.keys())}")
+    return models[model_name]
