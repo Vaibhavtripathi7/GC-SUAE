@@ -175,3 +175,132 @@ class TAGCLLoss(nn.Module):
 
         self._dequeue_and_enqueue(k, feo_means, slope_means)
         return loss
+
+
+class LMMConstraintLoss(nn.Module):
+    """
+    Regularization loss to enforce the Linear Mixing Model constraints more
+    strongly during early training (before the decoder learns them implicitly).
+
+    Penalizes:
+        - Abundance sum deviation from 1.0 (ASC)
+        - Spectral reconstruction via learned endmember matrix (E)
+    """
+
+    def forward(
+        self,
+        abundances: torch.Tensor,   # (B, K, H, W) - predicted abundances
+        endmember_matrix: torch.Tensor,  # (K, n_bands) - from LMMDecoder
+        target_spectra: torch.Tensor,    # (B, n_bands, H, W) - IIRS
+    ) -> torch.Tensor:
+        B, K, H, W = abundances.shape
+
+        # ASC: abundance sum should be 1
+        asc_loss = ((abundances.sum(dim=1) - 1.0) ** 2).mean()
+
+        # ANC: non-negativity (abundances should already be ReLU'd, but clip penalty)
+        anc_loss = F.relu(-abundances).mean()
+
+        # Spectral fidelity through endmembers
+        a_flat = abundances.permute(0, 2, 3, 1).reshape(-1, K)
+        recon_flat = torch.mm(a_flat, endmember_matrix)
+        t_flat = target_spectra.permute(0, 2, 3, 1).reshape(-1, target_spectra.size(1))
+        spectral_loss = F.mse_loss(recon_flat, t_flat)
+
+        return asc_loss + anc_loss + spectral_loss
+
+
+class CombinedLoss(nn.Module):
+    """
+    Full training loss for GC-SUAE:
+
+        L = L_mse
+          + λ_sam  · L_sam
+          + λ_tagcl · L_tagcl    (annealed)
+          + λ_dem  · L_dem_recon
+          + λ_feo  · L_feo_recon
+          + λ_lmm  · L_lmm
+    """
+
+    def __init__(
+        self,
+        lambda_sam:   float = 0.10,
+        lambda_tagcl: float = 0.00,  # annealed externally
+        lambda_dem:   float = 0.05,
+        lambda_feo:   float = 0.10,
+        lambda_lmm:   float = 0.20,
+        tagcl_cfg: dict = None,
+    ):
+        super().__init__()
+        self.lambda_sam   = lambda_sam
+        self.lambda_tagcl = lambda_tagcl
+        self.lambda_dem   = lambda_dem
+        self.lambda_feo   = lambda_feo
+        self.lambda_lmm   = lambda_lmm
+
+        from models.architectures import SpectralAngleMapperLoss
+        self.sam_loss = SpectralAngleMapperLoss()
+        self.lmm_loss = LMMConstraintLoss()
+
+        tagcl_cfg = tagcl_cfg or {}
+        self.tagcl = TAGCLLoss(**tagcl_cfg)
+
+    def set_lambda_tagcl(self, value: float):
+        """Called by trainer to anneal TAGCL weight."""
+        self.lambda_tagcl = value
+
+    def forward(
+        self,
+        model_output: dict,
+        batch: dict,
+        z_momentum: torch.Tensor = None,  # from momentum encoder if available
+    ) -> Tuple[torch.Tensor, dict]:
+        """
+        Returns (total_loss, loss_components_dict).
+        """
+        iirs_target = batch["iirs"]
+
+        l_mse = F.mse_loss(model_output["recon_iirs"], iirs_target)
+        l_sam = self.sam_loss(model_output["recon_iirs"], iirs_target)
+
+        l_feo = F.mse_loss(model_output["recon_feo"], batch["feo"])
+        l_dem = F.mse_loss(model_output["recon_dem"], batch["dem"])
+
+        # LMM constraint uses the endmember matrix learned by the decoder
+        E = model_output.get("endmember_matrix", None)
+        if E is not None:
+            l_lmm = self.lmm_loss(model_output["abundances"], E, iirs_target)
+        else:
+            l_lmm = torch.tensor(0.0, device=iirs_target.device)
+
+        # TAGCL contrastive loss
+        l_tagcl = torch.tensor(0.0, device=iirs_target.device)
+        if self.lambda_tagcl > 0 and z_momentum is not None:
+            l_tagcl = self.tagcl(
+                model_output["latent"],
+                z_momentum,
+                batch["feo_mean"],
+                batch["slope_mean"],
+            )
+
+        total = (
+            l_mse
+            + self.lambda_sam   * l_sam
+            + self.lambda_tagcl * l_tagcl
+            + self.lambda_dem   * l_dem
+            + self.lambda_feo   * l_feo
+            + self.lambda_lmm   * l_lmm
+        )
+
+        components = {
+            "loss_total":  total.item(),
+            "loss_mse":    l_mse.item(),
+            "loss_sam":    l_sam.item(),
+            "loss_tagcl":  l_tagcl.item() if isinstance(l_tagcl, torch.Tensor) else 0.0,
+            "loss_dem":    l_dem.item(),
+            "loss_feo":    l_feo.item(),
+            "loss_lmm":    l_lmm.item(),
+            "lambda_tagcl": self.lambda_tagcl,
+        }
+
+        return total, components
