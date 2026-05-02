@@ -1,0 +1,97 @@
+# GC-SUAE Default Training Configuration
+# LunarSpecNet — Vaibhav Tripathi, 2026
+
+experiment:
+  name: "gcsuae_default"
+  seed: 42
+  output_dir: "outputs/"
+  log_dir: "logs/"
+
+data:
+  iirs_hdr: "data/raw/data.hdr"
+  iirs_qub: "data/raw/data.qub"
+  dem_path: "data/processed/aligned_tmc2_dem.tif"
+  feo_path: "data/processed/aligned_elemental_map.tif"
+  endmember_path: "data/endmembers/relab_lunar_6minerals.npy"
+  patch_size: 64
+  stride: 32
+  train_split: 0.80
+  val_split: 0.10
+  test_split: 0.10
+  num_workers: 4
+  pin_memory: true
+
+  # Spectral band selection (IIRS 800-2500nm, avoids thermal IR beyond 2500nm)
+  band_start: 0
+  band_end: 86   # ~256 bands total; first 86 cover 800-2500nm NIR window
+  n_bands: 86
+
+  # Geochemical pair construction for TAGCL
+  feo_positive_threshold: 0.05   # patches within 5% FeO are positives
+  slope_positive_threshold: 5.0  # degrees; terrain similarity criterion
+
+model:
+  name: "GC_SUAE"
+  n_bands: 86
+  latent_dim: 128
+  n_minerals: 6                  # number of endmember classes
+  patch_size: 64
+
+  # Encoder channels
+  iirs_encoder_channels: [128, 256, 256]
+  aux_encoder_channels: [32, 64, 128]
+
+  # Deformable cross-attention
+  d_model: 256
+  n_heads: 8
+  n_deform_points: 4             # deformable attention sampling points per head
+
+  # Decoder
+  decoder_channels: [256, 128, 86]
+  use_lmm_constraint: true       # enforce non-negativity + sum-to-one on abundances
+
+training:
+  epochs: 100
+  batch_size: 8
+  accumulate_steps: 4
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-5
+  lr_scheduler: "cosine"
+  warmup_epochs: 5
+  grad_clip_norm: 1.0
+  amp: true                      # automatic mixed precision
+
+  # Loss weights (annealed)
+  lambda_sam: 0.1
+  lambda_tagcl: 0.0              # annealed 0 -> 0.5 over first 30 epochs
+  lambda_tagcl_max: 0.5
+  lambda_tagcl_anneal_epochs: 30
+  lambda_dem: 0.05
+  lambda_feo: 0.1
+  lambda_lmm: 0.2
+
+  # TAGCL (Terrain-Aware Geochemical Contrastive Loss)
+  tagcl_temperature: 0.07
+  tagcl_queue_size: 4096
+  tagcl_momentum: 0.999          # momentum encoder update rate
+
+evaluation:
+  clustering:
+    n_clusters: 10
+    n_init: 20
+    algorithm: "kmeans++"
+  endmember_sam_threshold: 0.15  # radians; SAM < threshold => mineral match
+  metrics:
+    - silhouette_score
+    - davies_bouldin_score
+    - mean_sam
+    - endmember_id_accuracy
+    - reconstruction_snr
+
+logging:
+  use_wandb: false               # set true if wandb available
+  log_every_n_steps: 10
+  save_every_n_epochs: 10
+  save_best: true
+  best_metric: "silhouette_score"
+  best_mode: "max"
