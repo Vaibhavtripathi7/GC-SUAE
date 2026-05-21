@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: LunarSpecNet
+authors:
+  - family-names: Tripathi
+    given-names: Vaibhav
+version: 1.0.0
+date-released: 2026-06-12
+license: MIT
+repository-code: "https://github.com/Vaibhavtripathi7/LunarSpecNet"
