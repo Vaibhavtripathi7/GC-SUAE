@@ -178,10 +178,10 @@ def main():
     g = torch.Generator().manual_seed(seed)
     train_ds, val_ds, _ = random_split(dataset, [n_train, n_val, n_test], generator=g)
 
-    bs = 8
-    train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True,  num_workers=4)
-    val_loader   = DataLoader(val_ds,   batch_size=bs, shuffle=False, num_workers=4)
-    full_loader  = DataLoader(dataset,  batch_size=bs, shuffle=False, num_workers=4)
+    bs = 4
+    train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True,  num_workers=2)
+    val_loader   = DataLoader(val_ds,   batch_size=bs, shuffle=False, num_workers=2)
+    full_loader  = DataLoader(dataset,  batch_size=bs, shuffle=False, num_workers=2)
 
     # Load endmember library
     endmember_lib = EndmemberLibrary(
