@@ -52,7 +52,11 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
     latent_dim = model_cfg_override.get("latent_dim", 64)
     patch_size = shared_cfg["data"].get("patch_size", 64)
 
-    model = build_model(model_name, {
+    # The NoTAGCL ablation reuses the GC_SUAE architecture; only the loss differs.
+    # build_model only knows the base name, so remap the variant name here.
+    build_name = "GC_SUAE" if model_name == "GC_SUAE_NoTAGCL" else model_name
+
+    model = build_model(build_name, {
         "n_bands":    n_bands,
         "latent_dim": latent_dim,
         "patch_size": patch_size,
@@ -62,6 +66,7 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
     })
 
     # Loss
+    is_gcsuae = model_name in ("GC_SUAE", "GC_SUAE_NoTAGCL")
     use_tagcl = (model_name == "GC_SUAE")
     tagcl_cfg = {
         "feo_threshold":   shared_cfg["data"].get("feo_positive_threshold", 0.05),
@@ -77,7 +82,7 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         lambda_tagcl = 0.0,
         lambda_dem   = model_cfg_override.get("lambda_dem", 0.05),
         lambda_feo   = model_cfg_override.get("lambda_feo", 0.1),
-        lambda_lmm   = model_cfg_override.get("lambda_lmm", 0.2) if use_tagcl else 0.0,
+        lambda_lmm   = model_cfg_override.get("lambda_lmm", 0.2) if is_gcsuae else 0.0,
         tagcl_cfg    = tagcl_cfg,
     )
 

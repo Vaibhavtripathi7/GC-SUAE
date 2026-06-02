@@ -62,6 +62,16 @@ models:
     lambda_dem: 0.05
     lambda_lmm: 0.2
 
+  gcsuae_no_tagcl:
+    name: "GC_SUAE_NoTAGCL"
+    latent_dim: 128
+    epochs: 100
+    description: "Ablation: GC-SUAE architecture + LMM decoder, TAGCL disabled"
+    lambda_tagcl_max: 0.0
+    lambda_feo: 0.1
+    lambda_dem: 0.05
+    lambda_lmm: 0.2
+
 evaluation:
   clustering:
     n_clusters: 10
