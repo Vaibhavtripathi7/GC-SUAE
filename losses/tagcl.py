@@ -131,15 +131,16 @@ class TAGCLLoss(nn.Module):
         k = F.normalize(z_key, dim=1).detach()     # (B, d)
 
         # Use only filled portion of queue (avoids phantom negatives during warmup)
+        device   = z_query.device
         q_filled = int(self.queue_filled)
-        queue_k  = self.queue[:q_filled].clone().detach()      # (Q_actual, d)
-        queue_f  = self.queue_feo[:q_filled].clone()
-        queue_s  = self.queue_slope[:q_filled].clone()
+        queue_k  = self.queue[:q_filled].clone().detach().to(device)   # (Q_actual, d)
+        queue_f  = self.queue_feo[:q_filled].clone().to(device)
+        queue_s  = self.queue_slope[:q_filled].clone().to(device)
 
         # All keys = current batch keys + filled queue
         all_keys   = torch.cat([k, queue_k], dim=0)            # (B+Q_actual, d)
-        all_feo    = torch.cat([feo_means.detach(), queue_f], dim=0)
-        all_slopes = torch.cat([slope_means.detach(), queue_s], dim=0)
+        all_feo    = torch.cat([feo_means.detach().to(device), queue_f], dim=0)
+        all_slopes = torch.cat([slope_means.detach().to(device), queue_s], dim=0)
 
         N = all_keys.shape[0]  # B + Q_actual (varies during warmup)
 
