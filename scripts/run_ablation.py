@@ -138,9 +138,14 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         "n_identified_clusters": n_identified,
     }
 
-    # Save metrics
+    # Save metrics. numpy/torch scalars aren't JSON-serializable, so unwrap any
+    # value exposing .item() to a native Python number first.
     with open(os.path.join(model_out_dir, "metrics.json"), "w") as f:
-        json.dump({k: v for k, v in metrics.items() if not isinstance(v, list)}, f, indent=2)
+        json.dump(
+            {k: (v.item() if hasattr(v, "item") else v)
+             for k, v in metrics.items() if not isinstance(v, list)},
+            f, indent=2,
+        )
 
     print(f"  Silhouette:  {metrics['silhouette_score']:.4f}")
     print(f"  DB Index:    {metrics['davies_bouldin_index']:.4f}")
@@ -221,7 +226,8 @@ def main():
     # Save full results JSON
     results_path = os.path.join(output_dir, "ablation_results.json")
     saveable = {
-        m: {k: v for k, v in metrics.items() if not isinstance(v, list)}
+        m: {k: (v.item() if hasattr(v, "item") else v)
+            for k, v in metrics.items() if not isinstance(v, list)}
         for m, metrics in all_results.items()
     }
     with open(results_path, "w") as f:
