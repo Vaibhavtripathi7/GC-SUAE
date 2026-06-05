@@ -114,7 +114,17 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         use_tagcl    = use_tagcl,
         device       = device,
     )
-    trainer.fit()
+
+    # Skip retraining if this variant already finished: a metrics.json plus a
+    # saved checkpoint means we can just reload the weights and re-evaluate.
+    metrics_path = os.path.join(model_out_dir, "metrics.json")
+    ckpt_path    = os.path.join(model_out_dir, "best_model.pth")
+    if os.path.exists(metrics_path) and os.path.exists(ckpt_path):
+        print(f"[Ablation] Found existing metrics + checkpoint for {model_name}; "
+              f"skipping training and reloading weights.")
+        trainer.load_checkpoint(ckpt_path)
+    else:
+        trainer.fit()
 
     # Evaluation
     print(f"\n[Ablation] Evaluating {model_name}...")
