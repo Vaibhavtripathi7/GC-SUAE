@@ -222,7 +222,7 @@ def main():
         )
         all_results[model_name] = metrics
 
-        if model_name == "GC_SUAE":
+        if model_name == "GC_SUAE" and labels is not None:
             gcsuae_data = {
                 "labels":           labels,
                 "cluster_spectra":  cluster_spectra,
