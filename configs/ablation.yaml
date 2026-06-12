@@ -17,7 +17,7 @@ data:
   val_split: 0.10
   test_split: 0.10
   n_bands: 86
-  feo_positive_threshold: 0.05
+  feo_positive_threshold: 0.02
   slope_positive_threshold: 5.0
 
 models:
