@@ -1,1 +1,1 @@
-# LunarSpecNet
+# GC-SUAE
