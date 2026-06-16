@@ -203,20 +203,22 @@ def figure1_main_results(
     dpi: int = 300,
 ):
     """
-    Figure 1: Main quantitative results (4-panel).
+    Figure 1: Main quantitative results (3-panel).
     Panel A: Ablation bar chart (Silhouette Score)
     Panel B: FeO abundance per mineral cluster (box plots)
-    Panel C: t-SNE latent space projection
-    Panel D: Mean spectral signatures per cluster
+    Panel C: Mean spectral signatures per cluster
     """
     sns.set_theme(style="whitegrid", context="paper", font_scale=1.2)
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig, axes = plt.subplots(1, 3, figsize=(20, 6))
 
     # Panel A: Ablation comparison
-    ax = axes[0, 0]
+    ax = axes[0]
     model_names = list(results.keys())
     sil_scores  = [results[m]["silhouette_score"] for m in model_names]
-    colors = ["#aaaaaa"] * (len(model_names) - 1) + ["#2ecc71"]
+    colors = [
+        "#2ecc71" if ("NoTAGCL" in m or m == "GC_SUAE_NoTAGCL") else "#aaaaaa"
+        for m in model_names
+    ]
     bars = ax.bar(model_names, sil_scores, color=colors, edgecolor="black", width=0.55)
     ax.set_title("A. Silhouette Score - Model Ablation", fontweight="bold")
     ax.set_ylabel("Silhouette Score (higher = better)")
@@ -227,31 +229,18 @@ def figure1_main_results(
     plt.setp(ax.get_xticklabels(), rotation=30, ha="right", fontsize=9)
 
     # Panel B: FeO per cluster
-    ax = axes[0, 1]
+    ax = axes[1]
     sns.boxplot(x=labels, y=feo_array, ax=ax, palette="tab10")
     ax.set_title("B. FeO Abundance by Mineral Cluster", fontweight="bold")
     ax.set_xlabel("Cluster ID")
     ax.set_ylabel("FeO (normalized)")
 
-    # Panel C: t-SNE projection
-    ax = axes[1, 0]
-    # Use PCA to 50D first, then t-SNE for stability
-    try:
-        from sklearn.decomposition import PCA
-        pca_50 = PCA(n_components=min(50, cluster_spectra.shape[0] - 1))
-        # Note: latent matrix not available here; placeholder
-        ax.set_title("C. t-SNE Latent Space Projection", fontweight="bold")
-        ax.text(0.5, 0.5, "Run with full latent matrix\n(see evaluate.py)",
-                ha="center", va="center", transform=ax.transAxes, fontsize=10)
-    except Exception:
-        pass
-
-    # Panel D: Mean spectral signatures
-    ax = axes[1, 1]
+    # Panel C: Mean spectral signatures
+    ax = axes[2]
     colors = plt.cm.tab10(np.linspace(0, 1, n_clusters))
     for i in range(min(n_clusters, cluster_spectra.shape[0])):
         ax.plot(cluster_spectra[i], label=f"Cluster {i}", color=colors[i], linewidth=1.8)
-    ax.set_title("D. Mean Spectral Signature per Cluster", fontweight="bold")
+    ax.set_title("C. Mean Spectral Signature per Cluster", fontweight="bold")
     ax.set_xlabel("IIRS Band Index (800-2500 nm)")
     ax.set_ylabel("Normalized Reflectance")
     ax.legend(fontsize=7, ncol=2, loc="upper right")
@@ -370,11 +359,13 @@ def figure3_ablation_table_figure(
     table.set_fontsize(11)
     table.scale(1.4, 2.0)
 
-    # Highlight proposed model (last row)
-    for j in range(len(df.columns)):
-        cell = table[len(df), j + 1]
-        cell.set_facecolor("#d4f1d4")
-        cell.set_text_props(fontweight="bold")
+    # Highlight proposed model (matched by name, not position)
+    for row_idx, model_name in enumerate(df.index):
+        if "NoTAGCL" in model_name or model_name == "GC_SUAE_NoTAGCL":
+            for j in range(len(df.columns)):
+                cell = table[row_idx + 1, j + 1]
+                cell.set_facecolor("#d4f1d4")
+                cell.set_text_props(fontweight="bold")
 
     ax.set_title("Table 1. Comprehensive Ablation Results", fontweight="bold",
                  fontsize=13, pad=20)

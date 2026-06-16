@@ -26,10 +26,10 @@ env/
 # Data, intermediate products and model artifacts (not versioned)
 data/raw/
 data/processed/
-data/endmembers/
+data/endmembers/*
 outputs/
 logs/
-results/
+results/*
 wandb/
 *.qub
 *.hdr
@@ -38,6 +38,11 @@ wandb/
 *.npy
 *.pth
 *.ckpt
+
+# Versioned artifacts
+!results/ablation_results.json
+!data/endmembers/relab_lunar_6minerals.npy
+!data/endmembers/iirs_wavelengths.npy
 
 # OS / editor
 .DS_Store
