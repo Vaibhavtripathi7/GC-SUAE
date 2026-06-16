@@ -1,5 +1,4 @@
 # GC-SUAE Default Training Configuration
-# LunarSpecNet — Vaibhav Tripathi, 2026
 
 experiment:
   name: "gcsuae_default"
@@ -59,7 +58,7 @@ training:
   lr_scheduler: "cosine"
   warmup_epochs: 5
   grad_clip_norm: 1.0
-  amp: true                      # automatic mixed precision
+  amp: true                      
 
   # Loss weights (annealed)
   lambda_sam: 0.1
@@ -73,7 +72,7 @@ training:
   # TAGCL (Terrain-Aware Geochemical Contrastive Loss)
   tagcl_temperature: 0.07
   tagcl_queue_size: 4096
-  tagcl_momentum: 0.999          # momentum encoder update rate
+  tagcl_momentum: 0.999          
 
 evaluation:
   clustering:
@@ -89,7 +88,7 @@ evaluation:
     - reconstruction_snr
 
 logging:
-  use_wandb: false               # set true if wandb available
+  use_wandb: false               
   log_every_n_steps: 10
   save_every_n_epochs: 10
   save_best: true

@@ -1,0 +1,72 @@
+{
+  "EarlyFusion": {
+    "silhouette_score": 0.18230000138282776,
+    "davies_bouldin_index": 1.4681,
+    "n_clusters": 10,
+    "mean_sam_rad": 0.11661,
+    "mean_mse": 0.008081,
+    "mean_sam_deg": 6.681,
+    "mineral_id_accuracy": 0.0,
+    "n_identified_clusters": 0
+  },
+  "GC_SUAE": {
+    "silhouette_score": 0.032099999487400055,
+    "davies_bouldin_index": 3.6489,
+    "n_clusters": 10,
+    "mean_sam_rad": 0.51069,
+    "mean_mse": 0.070935,
+    "mean_sam_deg": 29.26,
+    "mineral_id_accuracy": 0.0,
+    "n_identified_clusters": 0
+  },
+  "GC_SUAE_NoTAGCL": {
+    "silhouette_score": 0.25440001487731934,
+    "davies_bouldin_index": 1.2847,
+    "n_clusters": 10,
+    "mean_sam_rad": 0.41004,
+    "mean_mse": 0.049423,
+    "mean_sam_deg": 23.494,
+    "mineral_id_accuracy": 0.0,
+    "n_identified_clusters": 0
+  },
+  "LateFusion": {
+    "silhouette_score": 0.1981000006198883,
+    "davies_bouldin_index": 1.3816,
+    "n_clusters": 10,
+    "mean_sam_rad": 0.11961,
+    "mean_mse": 0.008883,
+    "mean_sam_deg": 6.853,
+    "mineral_id_accuracy": 0.0,
+    "n_identified_clusters": 0
+  },
+  "TRIAD": {
+    "silhouette_score": 0.3950999975204468,
+    "davies_bouldin_index": 0.7317,
+    "n_clusters": 10,
+    "mean_sam_rad": 0.13884,
+    "mean_mse": 0.013008,
+    "mean_sam_deg": 7.955,
+    "mineral_id_accuracy": 0.0,
+    "n_identified_clusters": 0
+  },
+  "Unimodal2DCNN": {
+    "silhouette_score": 0.16779999434947968,
+    "davies_bouldin_index": 1.5028,
+    "n_clusters": 10,
+    "mean_sam_rad": 0.11501,
+    "mean_mse": 0.007233,
+    "mean_sam_deg": 6.589,
+    "mineral_id_accuracy": 0.0,
+    "n_identified_clusters": 0
+  },
+  "Unimodal3DCNN": {
+    "silhouette_score": 0.1858000010251999,
+    "davies_bouldin_index": 1.4526,
+    "n_clusters": 10,
+    "mean_sam_rad": 0.11973,
+    "mean_mse": 0.008314,
+    "mean_sam_deg": 6.86,
+    "mineral_id_accuracy": 0.0,
+    "n_identified_clusters": 0
+  }
+}
