@@ -13,20 +13,25 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import yaml
 import torch
+import yaml
 from torch.utils.data import DataLoader, random_split
 
-from data.dataset import LunarMultimodalDataset, EndmemberLibrary
+from data.dataset import EndmemberLibrary, LunarMultimodalDataset
 from losses.tagcl import CombinedLoss
 from models.architectures import build_model
-from utils.trainer import Trainer, set_seed
 from utils.evaluation import (
-    extract_latents, cluster_latents, compute_cluster_spectra,
-    compute_sam_reconstruction, build_mineral_map,
-    figure1_main_results, figure2_mineral_map, figure3_ablation_table_figure,
+    build_mineral_map,
+    cluster_latents,
+    compute_cluster_spectra,
+    compute_sam_reconstruction,
+    extract_latents,
+    figure1_main_results,
+    figure2_mineral_map,
+    figure3_ablation_table_figure,
     print_results_table,
 )
+from utils.trainer import Trainer, set_seed
 
 
 def load_config(path: str) -> dict:

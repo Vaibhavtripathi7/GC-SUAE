@@ -3,20 +3,26 @@ Unit tests for model forward passes and loss functions on synthetic data.
 Run: pytest tests/ -v
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 import torch
-import numpy as np
 
+from losses.tagcl import CombinedLoss, LMMConstraintLoss, TAGCLLoss
 from models.architectures import (
-    Unimodal2DCNN, Unimodal3DCNN, EarlyFusionAE, LateFusionAE, TRIAD, GC_SUAE,
-    SpectralAngleMapperLoss, SpatialCrossAttention, build_model,
+    GC_SUAE,
+    TRIAD,
+    EarlyFusionAE,
+    LateFusionAE,
+    SpatialCrossAttention,
+    SpectralAngleMapperLoss,
+    Unimodal2DCNN,
+    Unimodal3DCNN,
+    build_model,
 )
-from losses.tagcl import TAGCLLoss, CombinedLoss, LMMConstraintLoss
-
 
 # Fixtures
 
