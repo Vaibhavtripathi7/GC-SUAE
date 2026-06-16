@@ -3,24 +3,19 @@ Evaluation: clustering metrics, reconstruction error, endmember-based mineral
 identification, spatial mineral maps, and the result figures.
 """
 
-import os
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import torch
 from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 from sklearn.metrics import davies_bouldin_score, silhouette_score
 from torch.utils.data import DataLoader
-
-from data.dataset import EndmemberLibrary
-
 
 MINERAL_COLORS = {
     "Low-Ca Pyroxene":  "#E24B4A",
@@ -110,7 +105,6 @@ def compute_cluster_spectra(
 
     Returns: (n_clusters, n_bands) mean spectra
     """
-    from models.architectures import SpectralAngleMapperLoss
 
     model.eval()
     cluster_sums   = np.zeros((n_clusters, loader.dataset.n_bands))
@@ -298,7 +292,7 @@ def figure2_mineral_map(
     display_map[display_map == -1] = len(mineral_names)
 
     axes[2].imshow(dem_data, cmap="gray", alpha=0.4, interpolation="bilinear")
-    im = axes[2].imshow(
+    axes[2].imshow(
         display_map, cmap=mineral_cmap,
         alpha=0.65, interpolation="nearest",
         vmin=0, vmax=n_minerals - 1,

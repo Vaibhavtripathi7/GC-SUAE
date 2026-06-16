@@ -12,13 +12,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import yaml
 import torch
+import yaml
 from torch.utils.data import DataLoader, random_split
 
 from data.dataset import LunarMultimodalDataset
 from losses.tagcl import CombinedLoss
-from models.architectures import build_model, GC_SUAE
+from models.architectures import build_model
 from utils.trainer import Trainer, set_seed
 
 

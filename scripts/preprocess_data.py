@@ -16,10 +16,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import rasterio
+import spectral.io.envi as envi
 from rasterio.enums import Resampling
 from rasterio.warp import reproject
-import spectral.io.envi as envi
-
 
 # Lunar sphere radius (IAU 2015)
 LUNAR_RADIUS_M = 1_737_400
@@ -160,9 +159,9 @@ def main():
     print("\n[Preprocess] Done. Files ready for training:")
     print(f"  DEM:  {dem_out}")
     print(f"  FeO:  {feo_out}")
-    print(f"\nNext steps:")
-    print(f"  1. python scripts/prepare_endmembers.py")
-    print(f"  2. python scripts/train.py --config configs/gcsuae_default.yaml")
+    print("\nNext steps:")
+    print("  1. python scripts/prepare_endmembers.py")
+    print("  2. python scripts/train.py --config configs/gcsuae_default.yaml")
 
 
 if __name__ == "__main__":

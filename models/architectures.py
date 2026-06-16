@@ -9,11 +9,11 @@ Model architectures: five ablation baselines plus the proposed GC-SUAE.
   6. GC_SUAE        - spatial cross-attention + multi-head LMM decoder
 """
 
+from typing import Dict, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Tuple
-
 
 # Shared building blocks
 

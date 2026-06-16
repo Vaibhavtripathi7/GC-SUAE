@@ -8,10 +8,11 @@ queue with an InfoNCE supervised-contrastive objective; lambda is annealed from
 0 to its max so the autoencoder stabilizes first.
 """
 
+from typing import Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple
 
 
 class TAGCLLoss(nn.Module):

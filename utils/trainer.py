@@ -10,13 +10,12 @@ import csv
 import os
 import random
 import time
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
-from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 
