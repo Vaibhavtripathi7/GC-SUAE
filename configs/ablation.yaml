@@ -30,26 +30,26 @@ models:
 
   unimodal_2d:
     name: "Unimodal2DCNN"
-    latent_dim: 64
-    epochs: 65
+    latent_dim: 128
+    epochs: 100
     description: "2D-CNN autoencoder on IIRS only, global-pooled latent"
 
   unimodal_3d:
     name: "Unimodal3DCNN"
-    latent_dim: 64
-    epochs: 65
+    latent_dim: 128
+    epochs: 100
     description: "3D-CNN (spectral-spatial) autoencoder on IIRS only"
 
   early_fusion:
     name: "EarlyFusion"
-    latent_dim: 64
-    epochs: 65
+    latent_dim: 128
+    epochs: 100
     description: "Channel-stack DEM+FeO onto IIRS before encoding"
 
   late_fusion:
     name: "LateFusion"
-    latent_dim: 64
-    epochs: 65
+    latent_dim: 128
+    epochs: 100
     description: "Encode separately, concat vectors, project to latent"
 
   pooled_attn_fusion:
