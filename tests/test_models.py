@@ -14,7 +14,7 @@ import torch
 from losses.tagcl import CombinedLoss, LMMConstraintLoss, TAGCLLoss
 from models.architectures import (
     GC_SUAE,
-    TRIAD,
+    PooledAttnFusion,
     EarlyFusionAE,
     LateFusionAE,
     SpatialCrossAttention,
@@ -77,8 +77,8 @@ class TestBaselineModels:
         model = LateFusionAE(N_BANDS, LATENT_DIM, PATCH_SIZE)
         self._test_model(model)
 
-    def test_triad(self):
-        model = TRIAD(N_BANDS, LATENT_DIM, PATCH_SIZE)
+    def test_pooled_attn_fusion(self):
+        model = PooledAttnFusion(N_BANDS, LATENT_DIM, PATCH_SIZE)
         self._test_model(model)
 
 
@@ -241,7 +241,7 @@ class TestSpatialCrossAttention:
         assert not torch.allclose(out, torch.zeros_like(out)), "Output is exactly zero"
     def test_all_models_build(self):
         cfg = {"n_bands": N_BANDS, "latent_dim": LATENT_DIM, "patch_size": PATCH_SIZE, "n_minerals": N_MINERALS, "d_model": 64, "n_heads": 4}
-        for name in ["Unimodal2DCNN", "Unimodal3DCNN", "EarlyFusion", "LateFusion", "TRIAD", "GC_SUAE"]:
+        for name in ["Unimodal2DCNN", "Unimodal3DCNN", "EarlyFusion", "LateFusion", "PooledAttnFusion", "GC_SUAE"]:
             model = build_model(name, cfg)
             assert model is not None, f"Failed to build {name}"
 

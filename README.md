@@ -29,7 +29,7 @@ All experiments were run on a Chandrayaan-2 IIRS scene covering the southern nea
 | Unimodal-3DCNN | 0.186 | 1.453 | 6.86 |
 | EarlyFusion | 0.182 | 1.468 | 6.68 |
 | LateFusion | 0.198 | 1.382 | 6.85 |
-| TRIAD | 0.395 | 0.732 | 7.96 |
+| PooledAttnFusion | 0.395 | 0.732 | 7.96 |
 | GC-SUAE w/ TAGCL | 0.032 | 3.649 | 29.3 |
 | **GC-SUAE w/o TAGCL** | **0.254** | **1.285** | **23.5** |
 
@@ -176,7 +176,7 @@ If you use this code or build on this work, please cite:
 }
 ```
 
-This work builds directly on the following papers. Bioucas-Dias et al. (IEEE JSTARS 2012) for spectral unmixing foundations and the Linear Mixing Model formulation. Khosla et al. (NeurIPS 2020) for the supervised InfoNCE loss used in TAGCL. He et al. (CVPR 2020) for the MoCo momentum encoder architecture. Roy et al. (IEEE TGRS 2023) for the TRIAD multimodal fusion baseline. Chauhan et al. (Icarus 2023) for the Chandrayaan-2 IIRS dataset and lunar mapping context. Kodikara et al. (arXiv 2024) for the lunar hyperspectral unmixing baseline.
+This work builds directly on the following papers. Bioucas-Dias et al. (IEEE JSTARS 2012) for spectral unmixing foundations and the Linear Mixing Model formulation. Khosla et al. (NeurIPS 2020) for the supervised InfoNCE loss used in TAGCL. He et al. (CVPR 2020) for the MoCo momentum encoder architecture. Chauhan et al. (Icarus 2023) for the Chandrayaan-2 IIRS dataset and lunar mapping context. Kodikara et al. (arXiv 2024) for the lunar hyperspectral unmixing baseline.
 
 
 ## Acknowledgements

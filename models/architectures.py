@@ -5,7 +5,7 @@ Model architectures: five ablation baselines plus the proposed GC-SUAE.
   2. Unimodal3DCNN  - 3D-CNN spectral-spatial autoencoder, IIRS only
   3. EarlyFusionAE  - channel-stack all modalities before encoding
   4. LateFusionAE   - encode separately, concatenate, project
-  5. TRIAD          - pooled-vector MultiheadAttention fusion
+  5. PooledAttnFusion - pooled-vector MultiheadAttention fusion
   6. GC_SUAE        - spatial cross-attention + multi-head LMM decoder
 """
 
@@ -215,13 +215,16 @@ class LateFusionAE(nn.Module):
         return recon, z
 
 
-# Baseline 5: TRIAD (pooled-vector attention)
+# Baseline 5: PooledAttnFusion (pooled-vector attention)
 
-class TRIAD(nn.Module):
+class PooledAttnFusion(nn.Module):
     """
-    Original TRIAD architecture from the prior codebase.
-    Cross-modal MultiheadAttention on globally-pooled 1D feature vectors.
-    Included as Baseline 5 to show improvement from spatial attention.
+    Pooled-vector attention fusion baseline.
+
+    Each modality is encoded to a single globally-pooled feature vector, and the
+    three vectors are fused with cross-modal MultiheadAttention. Included as
+    Baseline 5 to isolate the effect of *where* attention is applied: on pooled
+    1D vectors (here) versus on spatial feature maps (GC_SUAE).
     """
     def __init__(self, n_bands: int = 86, latent_dim: int = 64, patch_size: int = 64):
         super().__init__()
@@ -597,7 +600,7 @@ def build_model(model_name: str, cfg: dict) -> nn.Module:
         "Unimodal3DCNN": Unimodal3DCNN(n_bands, latent_dim, patch_size),
         "EarlyFusion":   EarlyFusionAE(n_bands, latent_dim, patch_size),
         "LateFusion":    LateFusionAE(n_bands, latent_dim, patch_size),
-        "TRIAD":         TRIAD(n_bands, latent_dim, patch_size),
+        "PooledAttnFusion": PooledAttnFusion(n_bands, latent_dim, patch_size),
         "GC_SUAE":       GC_SUAE(
             n_bands, latent_dim, n_minerals, patch_size,
             d_model=cfg.get("d_model", 256),

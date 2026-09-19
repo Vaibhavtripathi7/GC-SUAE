@@ -338,7 +338,9 @@ class Trainer:
         }, path)
 
     def load_checkpoint(self, path: str):
-        ckpt = torch.load(path, map_location=self.device)
+        # Checkpoints are self-authored and store the config dict, which the
+        # weights_only=True default in torch>=2.6 refuses to unpickle.
+        ckpt = torch.load(path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(ckpt["model_state"])
         self.optimizer.load_state_dict(ckpt["optim_state"])
         self.epoch       = ckpt.get("epoch", 0)

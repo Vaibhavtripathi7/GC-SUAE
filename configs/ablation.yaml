@@ -46,11 +46,11 @@ models:
     epochs: 65
     description: "Encode separately, concat vectors, project to latent"
 
-  triad_base:
-    name: "TRIAD"
-    latent_dim: 64
-    epochs: 65
-    description: "Original TRIAD: pooled-vector MultiheadAttention fusion"
+  pooled_attn_fusion:
+    name: "PooledAttnFusion"
+    latent_dim: 128
+    epochs: 100
+    description: "Pooled-vector MultiheadAttention fusion (capacity/epoch-matched to GC_SUAE)"
 
   gcsuae:
     name: "GC_SUAE"
