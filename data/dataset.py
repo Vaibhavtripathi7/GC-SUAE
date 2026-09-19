@@ -74,8 +74,8 @@ class LunarMultimodalDataset(Dataset):
         self.dem_data, dem_valid = self._read_raster(dem_path, "DEM")
         self.feo_data, feo_valid = self._read_raster(feo_path, "FeO")
         if feo_max_valid is not None:
-            # The Kaguya MI FeO algorithm saturates at a ceiling value over
-            # shadowed terrain; those pixels are not abundance measurements.
+            # The Kaguya MI mosaic fills its coverage gaps with a constant
+            # (21.94 wt%); those pixels are not abundance measurements.
             sat = feo_valid & (self.feo_data >= feo_max_valid)
             feo_valid &= ~sat
             print(f"[Dataset] FeO >= {feo_max_valid} masked: {100*sat.mean():.1f}% of pixels")

@@ -16,7 +16,7 @@ data:
   stride: 32
   min_valid_fraction: 1.0
   pixel_size_m: [79.8, 94.0]
-  feo_max_valid: 21.9   # Kaguya MI FeO saturates at 21.94 wt% over shadowed terrain
+  feo_max_valid: 21.9   # Kaguya MI mosaic fills its coverage gaps with 21.94 wt%
   train_split: 0.80
   val_split: 0.10
   test_split: 0.10
