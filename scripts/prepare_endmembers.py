@@ -7,17 +7,35 @@ library from published spectral parameters, suitable for relative
 mineralogical analysis.
 """
 
+import argparse
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 
-# IIRS wavelength axis (800-2500nm, ~20nm spacing = 86 bands)
-# Adjust if your actual IIRS HDR reports different wavelengths.
+# IIRS band centres from the PDS4 reflectance qube header: 256 bands from
+# 712.3 nm to 5009.7 nm, 16.8525 nm apart. The first 86 bands used by the
+# models therefore span 712.3-2144.8 nm.
 N_BANDS = 86
-WAVELENGTHS = np.linspace(800, 2500, N_BANDS)  # nm
+IIRS_FIRST_NM = 712.3
+IIRS_STEP_NM  = (5009.7 - 712.3) / 255
+
+
+def iirs_wavelengths(n_bands: int = N_BANDS, hdr_path: str = None) -> np.ndarray:
+    """Band centres (nm) for the first n_bands IIRS bands, from the header if given."""
+    if hdr_path:
+        text = open(hdr_path, errors="ignore").read()
+        block = re.search(r"wavelength\s*=\s*\{([^}]*)\}", text, re.S)
+        if block is None:
+            raise ValueError(f"No wavelength block in {hdr_path}")
+        return np.array([float(v) for v in block.group(1).split(",")][:n_bands])
+    return IIRS_FIRST_NM + np.arange(n_bands) * IIRS_STEP_NM
+
+
+WAVELENGTHS = iirs_wavelengths()
 
 
 def gaussian_absorption(wl_center: float, width: float, depth: float,
@@ -95,10 +113,19 @@ def make_endmember_spectra(wavelengths: np.ndarray) -> np.ndarray:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--hdr", default=None, help="IIRS .hdr to read band centres from")
+    parser.add_argument("--n_bands", type=int, default=N_BANDS)
+    args = parser.parse_args()
+
+    global WAVELENGTHS
+    WAVELENGTHS = iirs_wavelengths(args.n_bands, args.hdr)
+
     output_dir = "data/endmembers"
     os.makedirs(output_dir, exist_ok=True)
 
-    print("[Endmembers] Building synthetic RELAB-motivated endmember library...")
+    print(f"[Endmembers] Building synthetic RELAB-motivated endmember library on "
+          f"{len(WAVELENGTHS)} bands, {WAVELENGTHS[0]:.1f}-{WAVELENGTHS[-1]:.1f} nm...")
     spectra = make_endmember_spectra(WAVELENGTHS)
 
     output_path = os.path.join(output_dir, "relab_lunar_6minerals.npy")
