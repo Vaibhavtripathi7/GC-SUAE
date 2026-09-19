@@ -102,7 +102,9 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         "amp":                      True,
         "grad_clip_norm":           1.0,
         "warmup_epochs":            5,
-        "lambda_tagcl_max":         model_cfg_override.get("lambda_tagcl_max", 0.5),
+        # Only GC_SUAE trains with TAGCL; keep the annealed weight at 0 for the
+        # rest so the logged lambda reflects what the loss actually uses.
+        "lambda_tagcl_max":         model_cfg_override.get("lambda_tagcl_max", 0.5) if use_tagcl else 0.0,
         "lambda_tagcl_anneal_epochs": 30,
         "tagcl_momentum":           0.999,
         "log_every_n_steps":        20,
@@ -195,6 +197,9 @@ def main():
                         help="Override experiment.output_dir.")
     parser.add_argument("--num-workers", type=int, default=2,
                         help="DataLoader workers. Use 0 where the start method is not fork.")
+    parser.add_argument("--shuffle-aux", action="store_true",
+                        help="Control run: permute DEM/FeO patches across the dataset so the "
+                             "auxiliary inputs carry no information about the IIRS patch.")
     args = parser.parse_args()
 
     cfg    = load_config(args.config)
@@ -227,6 +232,7 @@ def main():
         min_valid_fraction = data_cfg.get("min_valid_fraction", 1.0),
         pixel_size_m = tuple(data_cfg.get("pixel_size_m", (79.8, 94.0))),
         feo_max_valid = data_cfg.get("feo_max_valid", None),
+        shuffle_aux_seed = seed if args.shuffle_aux else None,
     )
 
     n = len(dataset)

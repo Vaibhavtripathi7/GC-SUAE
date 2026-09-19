@@ -50,6 +50,7 @@ class LunarMultimodalDataset(Dataset):
         min_valid_fraction: float = 1.0,  # drop patches with less valid coverage
         pixel_size_m: Tuple[float, float] = (79.8, 94.0),  # (along-track, cross-track)
         feo_max_valid: Optional[float] = None,  # FeO values >= this are treated as nodata
+        shuffle_aux_seed: Optional[int] = None,  # control: permute DEM/FeO patches across the set
     ):
         super().__init__()
         self.patch_size = patch_size
@@ -113,6 +114,16 @@ class LunarMultimodalDataset(Dataset):
         print(f"[Dataset] Total patches: {len(self.indices)} "
               f"(of {n_candidates} candidates; {100*self.valid_mask.mean():.1f}% of "
               f"pixels valid in DEM∩FeO)")
+
+        # Modality-shuffle control: each IIRS patch is paired with the DEM/FeO
+        # of a different, randomly chosen patch. The auxiliary inputs keep their
+        # marginal distribution but carry no information about the spectra, so
+        # any fusion gain that survives this is architectural, not informational.
+        self.aux_perm = None
+        if shuffle_aux_seed is not None:
+            rng = np.random.default_rng(shuffle_aux_seed)
+            self.aux_perm = rng.permutation(len(self.indices))
+            print(f"[Dataset] CONTROL: auxiliary patches permuted (seed {shuffle_aux_seed})")
 
         # Global normalization stats (computed on subsample)
         if normalize:
@@ -196,6 +207,10 @@ class LunarMultimodalDataset(Dataset):
         )
         iirs_raw = np.nan_to_num(iirs_raw).transpose(2, 0, 1)  # (B, H, W)
         iirs = self._normalize(iirs_raw, self.iirs_min, self.iirs_max)
+
+        # Auxiliary modalities come from a different patch under the shuffle control
+        if self.aux_perm is not None:
+            r, c = self.indices[self.aux_perm[idx]]
 
         # DEM patch
         dem_raw = np.nan_to_num(self.dem_data[r:r+ps, c:c+ps])
