@@ -13,6 +13,7 @@ data:
   endmember_path: "data/endmembers/relab_lunar_6minerals.npy"
   patch_size: 64
   stride: 32
+  min_valid_fraction: 1.0   # drop patches with any DEM/FeO nodata
   train_split: 0.80
   val_split: 0.10
   test_split: 0.10

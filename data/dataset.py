@@ -12,7 +12,7 @@ import numpy as np
 import rasterio
 import spectral.io.envi as envi
 import torch
-from scipy.ndimage import sobel
+from scipy.ndimage import distance_transform_edt, sobel
 from torch.utils.data import Dataset
 
 warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
@@ -47,6 +47,7 @@ class LunarMultimodalDataset(Dataset):
         stride: int = 32,
         normalize: bool = True,
         subsample_frac: float = 0.1,  # fraction used for global stats
+        min_valid_fraction: float = 1.0,  # drop patches with less valid coverage
     ):
         super().__init__()
         self.patch_size = patch_size
@@ -54,6 +55,7 @@ class LunarMultimodalDataset(Dataset):
         self.band_start = band_start
         self.band_end = band_end
         self.n_bands = band_end - band_start
+        self.min_valid_fraction = min_valid_fraction
 
         # Load IIRS (memory-mapped for large files)
         print("[Dataset] Opening IIRS memory map...")
@@ -62,29 +64,42 @@ class LunarMultimodalDataset(Dataset):
         self.H, self.W, self.B = self._iirs_mmap.shape
         print(f"[Dataset] IIRS shape: {self.H}×{self.W}×{self.B} bands")
 
-        # Load DEM
-        with rasterio.open(dem_path) as src:
-            self.dem_data = src.read(1).astype(np.float32)
-        print(f"[Dataset] DEM shape: {self.dem_data.shape}")
+        # Load DEM and FeO. Nodata pixels (from the raster's nodata tag, NaN, or
+        # int16 fill values) are excluded from statistics and from patches;
+        # they were previously treated as real values, which put the 2nd
+        # percentile of the DEM at -32768.
+        self.dem_data, dem_valid = self._read_raster(dem_path, "DEM")
+        self.feo_data, feo_valid = self._read_raster(feo_path, "FeO")
+        for name, arr in (("DEM", self.dem_data), ("FeO", self.feo_data)):
+            if arr.shape != (self.H, self.W):
+                raise ValueError(f"{name} shape {arr.shape} does not match IIRS grid "
+                                 f"{(self.H, self.W)}; run scripts/preprocess_data.py")
+        self.valid_mask = dem_valid & feo_valid
 
         # Compute terrain slope and aspect from DEM
         # Sobel gradient as fixed physics-based feature (not learned)
-        sobel_x = sobel(self.dem_data, axis=1)
-        sobel_y = sobel(self.dem_data, axis=0)
+        # Nodata is filled from the nearest valid pixel first so the gradient
+        # does not see a cliff at the nodata boundary.
+        dem_filled = self._fill_nearest(self.dem_data, dem_valid)
+        sobel_x = sobel(dem_filled, axis=1)
+        sobel_y = sobel(dem_filled, axis=0)
         self.slope_data = np.hypot(sobel_x, sobel_y).astype(np.float32)
         self.aspect_data = np.arctan2(sobel_y, sobel_x).astype(np.float32)
+        self.dem_data = dem_filled
 
-        # Load FeO geochemical map
-        with rasterio.open(feo_path) as src:
-            self.feo_data = src.read(1).astype(np.float32)
-        print(f"[Dataset] FeO shape: {self.feo_data.shape}")
-
-        # Compute valid patch indices
+        # Compute valid patch indices, keeping only patches whose DEM and FeO
+        # coverage meets min_valid_fraction.
         self.indices: List[Tuple[int, int]] = []
+        n_candidates = 0
         for r in range(0, self.H - patch_size, stride):
             for c in range(0, self.W - patch_size, stride):
-                self.indices.append((r, c))
-        print(f"[Dataset] Total patches: {len(self.indices)}")
+                n_candidates += 1
+                frac = self.valid_mask[r:r+patch_size, c:c+patch_size].mean()
+                if frac >= self.min_valid_fraction:
+                    self.indices.append((r, c))
+        print(f"[Dataset] Total patches: {len(self.indices)} "
+              f"(of {n_candidates} candidates; {100*self.valid_mask.mean():.1f}% of "
+              f"pixels valid in DEM∩FeO)")
 
         # Global normalization stats (computed on subsample)
         if normalize:
@@ -95,6 +110,29 @@ class LunarMultimodalDataset(Dataset):
             self.dem_min, self.dem_max = 0.0, 1.0
             self.feo_min, self.feo_max = 0.0, 1.0
             self.slope_min, self.slope_max = 0.0, 1.0
+
+    @staticmethod
+    def _read_raster(path: str, name: str) -> Tuple[np.ndarray, np.ndarray]:
+        """Read band 1 as float32 with a validity mask (nodata tag, NaN, int16 fill)."""
+        with rasterio.open(path) as src:
+            data = src.read(1).astype(np.float32)
+            nodata = src.nodata
+        valid = np.isfinite(data)
+        if nodata is not None and np.isfinite(nodata):
+            valid &= data != np.float32(nodata)
+        valid &= data > -30000  # int16 fill written without a nodata tag
+        print(f"[Dataset] {name} shape: {data.shape} | valid: {100*valid.mean():.1f}%")
+        return data, valid
+
+    @staticmethod
+    def _fill_nearest(data: np.ndarray, valid: np.ndarray) -> np.ndarray:
+        """Replace invalid pixels with the value of the nearest valid pixel."""
+        if valid.all():
+            return data
+        if not valid.any():
+            return np.zeros_like(data)
+        idx = distance_transform_edt(~valid, return_distances=False, return_indices=True)
+        return data[tuple(idx)].astype(np.float32)
 
     def _compute_normalization_stats(self, frac: float):
         """
@@ -110,17 +148,15 @@ class LunarMultimodalDataset(Dataset):
         self.iirs_min = float(np.percentile(iirs_sub, 2))
         self.iirs_max = float(np.percentile(iirs_sub, 98))
 
-        dem_valid = np.nan_to_num(self.dem_data)
-        self.dem_min = float(np.percentile(dem_valid, 2))
-        self.dem_max = float(np.percentile(dem_valid, 98))
+        m = self.valid_mask
+        self.dem_min = float(np.percentile(self.dem_data[m], 2))
+        self.dem_max = float(np.percentile(self.dem_data[m], 98))
 
-        feo_valid = np.nan_to_num(self.feo_data)
-        self.feo_min = float(np.percentile(feo_valid, 2))
-        self.feo_max = float(np.percentile(feo_valid, 98))
+        self.feo_min = float(np.percentile(self.feo_data[m], 2))
+        self.feo_max = float(np.percentile(self.feo_data[m], 98))
 
-        slope_valid = np.nan_to_num(self.slope_data)
-        self.slope_min = float(np.percentile(slope_valid, 2))
-        self.slope_max = float(np.percentile(slope_valid, 98))
+        self.slope_min = float(np.percentile(self.slope_data[m], 2))
+        self.slope_max = float(np.percentile(self.slope_data[m], 98))
 
         print(
             f"[Dataset] IIRS: [{self.iirs_min:.4f}, {self.iirs_max:.4f}] | "
@@ -152,8 +188,8 @@ class LunarMultimodalDataset(Dataset):
         dem_raw = np.nan_to_num(self.dem_data[r:r+ps, c:c+ps])
         dem = self._normalize(dem_raw, self.dem_min, self.dem_max)[None]  # (1,H,W)
 
-        # FeO patch
-        feo_raw = np.nan_to_num(self.feo_data[r:r+ps, c:c+ps])
+        # FeO patch (invalid pixels, if any survive min_valid_fraction, read as 0)
+        feo_raw = np.where(self.valid_mask[r:r+ps, c:c+ps], self.feo_data[r:r+ps, c:c+ps], 0.0)
         feo = self._normalize(feo_raw, self.feo_min, self.feo_max)[None]  # (1,H,W)
 
         # Slope + Aspect patches
