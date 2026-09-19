@@ -49,6 +49,7 @@ class LunarMultimodalDataset(Dataset):
         subsample_frac: float = 0.1,  # fraction used for global stats
         min_valid_fraction: float = 1.0,  # drop patches with less valid coverage
         pixel_size_m: Tuple[float, float] = (79.8, 94.0),  # (along-track, cross-track)
+        feo_max_valid: Optional[float] = None,  # FeO values >= this are treated as nodata
     ):
         super().__init__()
         self.patch_size = patch_size
@@ -72,6 +73,13 @@ class LunarMultimodalDataset(Dataset):
         # percentile of the DEM at -32768.
         self.dem_data, dem_valid = self._read_raster(dem_path, "DEM")
         self.feo_data, feo_valid = self._read_raster(feo_path, "FeO")
+        if feo_max_valid is not None:
+            # The Kaguya MI FeO algorithm saturates at a ceiling value over
+            # shadowed terrain; those pixels are not abundance measurements.
+            sat = feo_valid & (self.feo_data >= feo_max_valid)
+            feo_valid &= ~sat
+            print(f"[Dataset] FeO >= {feo_max_valid} masked: {100*sat.mean():.1f}% of pixels")
+        self.feo_valid = feo_valid
         for name, arr in (("DEM", self.dem_data), ("FeO", self.feo_data)):
             if arr.shape != (self.H, self.W):
                 raise ValueError(f"{name} shape {arr.shape} does not match IIRS grid "
@@ -90,6 +98,7 @@ class LunarMultimodalDataset(Dataset):
         self.slope_data = np.degrees(np.arctan(np.hypot(dzdx, dzdy))).astype(np.float32)
         self.aspect_data = np.arctan2(dzdy, dzdx).astype(np.float32)
         self.dem_data = dem_filled
+        self.feo_data = self._fill_nearest(self.feo_data, feo_valid)
 
         # Compute valid patch indices, keeping only patches whose DEM and FeO
         # coverage meets min_valid_fraction.
@@ -192,8 +201,9 @@ class LunarMultimodalDataset(Dataset):
         dem_raw = np.nan_to_num(self.dem_data[r:r+ps, c:c+ps])
         dem = self._normalize(dem_raw, self.dem_min, self.dem_max)[None]  # (1,H,W)
 
-        # FeO patch (invalid pixels, if any survive min_valid_fraction, read as 0)
-        feo_raw = np.where(self.valid_mask[r:r+ps, c:c+ps], self.feo_data[r:r+ps, c:c+ps], 0.0)
+        # FeO patch (invalid pixels were filled from the nearest valid one)
+        feo_raw = self.feo_data[r:r+ps, c:c+ps]
+        feo_ok  = self.feo_valid[r:r+ps, c:c+ps]
         feo = self._normalize(feo_raw, self.feo_min, self.feo_max)[None]  # (1,H,W)
 
         # Slope + Aspect patches
@@ -206,7 +216,7 @@ class LunarMultimodalDataset(Dataset):
 
         # Scalar stats for TAGCL pair construction
         # Use raw (physical) units for proximity thresholds
-        feo_mean = float(np.nanmean(feo_raw))
+        feo_mean = float(feo_raw[feo_ok].mean()) if feo_ok.any() else float(feo_raw.mean())
         slope_mean = float(np.nanmean(slope_raw))
 
         return {

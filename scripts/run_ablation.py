@@ -226,6 +226,7 @@ def main():
         stride     = data_cfg.get("stride", 32),
         min_valid_fraction = data_cfg.get("min_valid_fraction", 1.0),
         pixel_size_m = tuple(data_cfg.get("pixel_size_m", (79.8, 94.0))),
+        feo_max_valid = data_cfg.get("feo_max_valid", None),
     )
 
     n = len(dataset)

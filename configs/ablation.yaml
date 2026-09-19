@@ -14,7 +14,8 @@ data:
   patch_size: 64
   stride: 32
   min_valid_fraction: 1.0   # drop patches with any DEM/FeO nodata
-  pixel_size_m: [79.8, 94.0]   # IIRS along-track, cross-track (from *_loc_* geometry)
+  pixel_size_m: [79.8, 94.0]
+  feo_max_valid: 21.9   # Kaguya MI FeO saturates at 21.94 wt% over shadowed terrain
   train_split: 0.80
   val_split: 0.10
   test_split: 0.10
