@@ -1,7 +1,7 @@
 """
 Aggregate multi-seed ablation results into a mean ± std table.
 
-Each seed run writes <root>/seed<N>/ablation_results.json (see run_ablation.py
+Each seed run writes <root>/seed<N>/<model>/metrics.json (see run_ablation.py
 --seed / --output-dir). This script collects them, reports mean ± std per model
 and metric, and runs a paired test between two named models across seeds.
 
@@ -27,19 +27,44 @@ METRICS = [
 ]
 
 
+MODEL_ORDER = ["Unimodal2DCNN", "Unimodal3DCNN", "EarlyFusion", "LateFusion",
+               "PooledAttnFusion", "GC_SUAE_NoTAGCL", "GC_SUAE"]
+
+
 def load_runs(root: str) -> dict:
-    """Returns {model: {metric: [values across seeds]}} plus the seed list."""
+    """
+    Returns {model: {metric: [values across seeds]}} plus the seed list.
+
+    Reads each model's own metrics.json (<root>/seed<N>/<model>/metrics.json)
+    rather than the per-seed ablation_results.json, which only lists the
+    models of the most recent (possibly partial) invocation.
+    """
     runs = defaultdict(lambda: defaultdict(list))
-    seeds = []
-    for path in sorted(glob.glob(os.path.join(root, "seed*", "ablation_results.json"))):
-        seed = os.path.basename(os.path.dirname(path))
-        seeds.append(seed)
-        with open(path) as f:
-            for model, metrics in json.load(f).items():
-                for key, _, _ in METRICS:
-                    if key in metrics:
-                        runs[model][key].append(metrics[key])
-    return runs, seeds
+    seeds = sorted(os.path.basename(d) for d in glob.glob(os.path.join(root, "seed*")) if os.path.isdir(d))
+    found = defaultdict(list)
+    for seed in seeds:
+        for path in sorted(glob.glob(os.path.join(root, seed, "*", "metrics.json"))):
+            with open(path) as f:
+                metrics = json.load(f)
+            model = _model_name(os.path.basename(os.path.dirname(path)))
+            found[model].append(seed)
+            for key, _, _ in METRICS:
+                if key in metrics:
+                    runs[model][key].append(metrics[key])
+    ordered = {m: runs[m] for m in MODEL_ORDER if m in runs}
+    ordered.update({m: v for m, v in runs.items() if m not in ordered})
+    for m, s in found.items():
+        if len(s) != len(seeds):
+            print(f"  note: {m} present in {len(s)}/{len(seeds)} seeds ({', '.join(s)})")
+    return ordered, seeds
+
+
+def _model_name(dirname: str) -> str:
+    """Output dirs are lower-cased model names; map back to the canonical name."""
+    for m in MODEL_ORDER:
+        if m.lower() == dirname:
+            return m
+    return dirname
 
 
 def fmt(values, spec):
@@ -97,7 +122,7 @@ def main():
 
     runs, seeds = load_runs(args.root)
     if not runs:
-        raise SystemExit(f"No seed*/ablation_results.json found under {args.root}")
+        raise SystemExit(f"No seed*/<model>/metrics.json found under {args.root}")
     print(f"Seeds found: {seeds}\n")
     print(markdown_table(runs))
     if args.latex:
