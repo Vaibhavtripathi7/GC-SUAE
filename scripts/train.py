@@ -40,6 +40,7 @@ def build_dataloaders(cfg: dict):
         patch_size  = data_cfg.get("patch_size", 64),
         stride      = data_cfg.get("stride", 32),
         min_valid_fraction = data_cfg.get("min_valid_fraction", 1.0),
+        pixel_size_m = tuple(data_cfg.get("pixel_size_m", (79.8, 94.0))),
     )
 
     n = len(dataset)

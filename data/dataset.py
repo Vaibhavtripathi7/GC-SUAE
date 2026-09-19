@@ -27,10 +27,10 @@ class LunarMultimodalDataset(Dataset):
             'iirs':   (n_bands, patch_size, patch_size)  float32 reflectance
             'dem':    (1, patch_size, patch_size)         float32 normalized elevation
             'feo':    (1, patch_size, patch_size)         float32 normalized FeO wt%
-            'slope':  (1, patch_size, patch_size)         float32 terrain slope magnitude
+            'slope':  (1, patch_size, patch_size)         float32 terrain slope (deg, normalized)
             'aspect': (1, patch_size, patch_size)         float32 terrain aspect
-            'feo_mean':  scalar float  - patch-mean FeO for TAGCL pair construction
-            'slope_mean': scalar float - patch-mean slope for TAGCL
+            'feo_mean':  scalar float  - patch-mean FeO in wt% for TAGCL pair construction
+            'slope_mean': scalar float - patch-mean slope in degrees for TAGCL
             'patch_idx': int           - unique patch index for pairing
         }
     """
@@ -48,6 +48,7 @@ class LunarMultimodalDataset(Dataset):
         normalize: bool = True,
         subsample_frac: float = 0.1,  # fraction used for global stats
         min_valid_fraction: float = 1.0,  # drop patches with less valid coverage
+        pixel_size_m: Tuple[float, float] = (79.8, 94.0),  # (along-track, cross-track)
     ):
         super().__init__()
         self.patch_size = patch_size
@@ -56,6 +57,7 @@ class LunarMultimodalDataset(Dataset):
         self.band_end = band_end
         self.n_bands = band_end - band_start
         self.min_valid_fraction = min_valid_fraction
+        self.pixel_size_m = tuple(pixel_size_m)
 
         # Load IIRS (memory-mapped for large files)
         print("[Dataset] Opening IIRS memory map...")
@@ -76,15 +78,17 @@ class LunarMultimodalDataset(Dataset):
                                  f"{(self.H, self.W)}; run scripts/preprocess_data.py")
         self.valid_mask = dem_valid & feo_valid
 
-        # Compute terrain slope and aspect from DEM
-        # Sobel gradient as fixed physics-based feature (not learned)
-        # Nodata is filled from the nearest valid pixel first so the gradient
-        # does not see a cliff at the nodata boundary.
+        # Compute terrain slope (degrees) and aspect from DEM
+        # Sobel gradient as fixed physics-based feature (not learned). The
+        # Sobel kernel sums to 8x the central difference, so dividing by
+        # 8 * pixel size gives dz/dx in m/m. Nodata is filled from the nearest
+        # valid pixel first so the gradient does not see a cliff at the boundary.
         dem_filled = self._fill_nearest(self.dem_data, dem_valid)
-        sobel_x = sobel(dem_filled, axis=1)
-        sobel_y = sobel(dem_filled, axis=0)
-        self.slope_data = np.hypot(sobel_x, sobel_y).astype(np.float32)
-        self.aspect_data = np.arctan2(sobel_y, sobel_x).astype(np.float32)
+        dy_m, dx_m = self.pixel_size_m
+        dzdx = sobel(dem_filled, axis=1) / (8.0 * dx_m)
+        dzdy = sobel(dem_filled, axis=0) / (8.0 * dy_m)
+        self.slope_data = np.degrees(np.arctan(np.hypot(dzdx, dzdy))).astype(np.float32)
+        self.aspect_data = np.arctan2(dzdy, dzdx).astype(np.float32)
         self.dem_data = dem_filled
 
         # Compute valid patch indices, keeping only patches whose DEM and FeO

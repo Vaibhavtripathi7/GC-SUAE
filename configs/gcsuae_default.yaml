@@ -14,6 +14,8 @@ data:
   endmember_path: "data/endmembers/relab_lunar_6minerals.npy"
   patch_size: 64
   stride: 32
+  min_valid_fraction: 1.0
+  pixel_size_m: [79.8, 94.0]
   train_split: 0.80
   val_split: 0.10
   test_split: 0.10
@@ -26,8 +28,8 @@ data:
   n_bands: 86
 
   # Geochemical pair construction for TAGCL
-  feo_positive_threshold: 0.05   # patches within 5% FeO are positives
-  slope_positive_threshold: 5.0  # degrees; terrain similarity criterion
+  feo_positive_threshold: 0.5    # wt% FeO; patch-mean proximity for positives
+  slope_positive_threshold: 2.0  # degrees; patch-mean slope proximity
 
 model:
   name: "GC_SUAE"

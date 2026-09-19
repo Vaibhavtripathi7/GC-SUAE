@@ -20,9 +20,10 @@ class TAGCLLoss(nn.Module):
     Terrain-Aware Geochemical Contrastive Loss.
 
     Args:
-        feo_threshold:   FeO proximity threshold for positive pair construction
-                         (in normalized [0,1] units; ~0.05 ≈ 5% FeO wt%)
-        slope_threshold: Slope proximity threshold (normalized units; ~0.1)
+        feo_threshold:   FeO proximity threshold for positive pair construction,
+                         in the units of batch["feo_mean"] (wt%% FeO)
+        slope_threshold: Slope proximity threshold, in the units of
+                         batch["slope_mean"] (degrees)
         temperature:     InfoNCE temperature (default 0.07, standard for MoCo)
         queue_size:      Number of negative samples in the memory queue
         d_model:         Dimension of latent representations

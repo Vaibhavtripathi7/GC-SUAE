@@ -14,12 +14,16 @@ data:
   patch_size: 64
   stride: 32
   min_valid_fraction: 1.0   # drop patches with any DEM/FeO nodata
+  pixel_size_m: [79.8, 94.0]   # IIRS along-track, cross-track (from *_loc_* geometry)
   train_split: 0.80
   val_split: 0.10
   test_split: 0.10
   n_bands: 86
-  feo_positive_threshold: 0.02
-  slope_positive_threshold: 5.0
+  # TAGCL positive-pair thresholds in physical units: patch-mean FeO (wt%)
+  # and patch-mean slope (degrees). Prior values (0.02 / 5.0) were set for
+  # unphysical inputs (red channel of a colour map / raw Sobel output).
+  feo_positive_threshold: 0.5
+  slope_positive_threshold: 2.0
 
 models:
 

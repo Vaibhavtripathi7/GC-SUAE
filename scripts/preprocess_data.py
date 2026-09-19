@@ -1,4 +1,8 @@
 """
+SUPERSEDED by scripts/register_aux.py, which uses the per-pixel coordinates
+from the IIRS bundle instead of fitting the strip to a lon/lat rectangle.
+Kept for reference only.
+
 Align TMC-2 DEM and Clementine FeO maps to the IIRS spatial grid. Run once
 before training.
 
