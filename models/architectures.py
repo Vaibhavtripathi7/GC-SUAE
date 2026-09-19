@@ -442,6 +442,20 @@ class LMMDecoder(nn.Module):
         """Constrained endmember matrix E ∈ [0,1]^{K × n_bands}."""
         return torch.sigmoid(self.raw_endmember_matrix)
 
+    @torch.no_grad()
+    def init_endmembers(self, spectra: torch.Tensor):
+        """
+        Initialise E from data (e.g. k-means centroids of patch spectra in the
+        same normalised units as the input). With the zero (flat 0.5)
+        initialisation and a small learning rate, sigmoid(raw_E) cannot leave
+        [0.44, 0.56] within a normal training budget, so the decoder never
+        reconstructs spectral shape; starting from real spectra removes that.
+        """
+        assert spectra.shape == self.raw_endmember_matrix.shape, \
+            f"expected {tuple(self.raw_endmember_matrix.shape)}, got {tuple(spectra.shape)}"
+        x = spectra.to(self.raw_endmember_matrix).clamp(0.02, 0.98)
+        self.raw_endmember_matrix.copy_(torch.log(x / (1.0 - x)))
+
     def get_abundances(self, z: torch.Tensor) -> torch.Tensor:
         """
         Returns per-pixel mineral abundances: (B, n_minerals, H, W)

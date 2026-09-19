@@ -41,6 +41,18 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def endmember_init_from_loader(loader, n_minerals: int, seed: int) -> "np.ndarray":
+    """k-means centroids of patch-mean spectra (normalised units), (K, n_bands)."""
+    import numpy as np
+    from sklearn.cluster import KMeans
+    means = []
+    for batch in loader:
+        means.append(batch["iirs"].mean(dim=(2, 3)).numpy())
+    means = np.concatenate(means)
+    km = KMeans(n_clusters=n_minerals, n_init=10, random_state=seed).fit(means)
+    return km.cluster_centers_.astype("float32")
+
+
 def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
                    train_loader, val_loader, full_loader, dataset, endmember_lib,
                    output_dir: str, device: torch.device, seed: int = 42) -> dict:
@@ -72,8 +84,14 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         "n_heads":    8,
     })
 
-    # Loss
     is_gcsuae = model_name in ("GC_SUAE", "GC_SUAE_NoTAGCL")
+    if is_gcsuae:
+        centroids = endmember_init_from_loader(train_loader, n_minerals=6, seed=seed)
+        model.lmm_decoder.init_endmembers(torch.from_numpy(centroids))
+        print(f"[Ablation] LMM endmembers initialised from k-means of "
+              f"{len(train_loader.dataset)} training patch spectra")
+
+    # Loss
     use_tagcl = (model_name == "GC_SUAE")
     tagcl_cfg = {
         "feo_threshold":   shared_cfg["data"].get("feo_positive_threshold", 0.05),
@@ -107,6 +125,7 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         "lambda_tagcl_max":         model_cfg_override.get("lambda_tagcl_max", 0.5) if use_tagcl else 0.0,
         "lambda_tagcl_anneal_epochs": 30,
         "tagcl_momentum":           0.999,
+        "endmember_lr_mult":        10.0,
         "log_every_n_steps":        20,
         "save_every_n_epochs":      model_cfg_override.get("epochs", 65),  # only save at end
         "best_metric":              "val_loss",

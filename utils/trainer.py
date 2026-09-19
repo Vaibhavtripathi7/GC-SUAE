@@ -67,10 +67,19 @@ class Trainer:
         else:
             self.momentum_model = None
 
-        # Optimizer
+        # Optimizer. The endmember matrix is a handful of parameters that
+        # have to move much further than the network weights, so it gets
+        # its own (larger) learning rate.
+        base_lr = cfg.get("learning_rate", 1e-4)
+        em_params  = [p for n, p in self.model.named_parameters() if n.endswith("raw_endmember_matrix")]
+        net_params = [p for n, p in self.model.named_parameters() if not n.endswith("raw_endmember_matrix")]
+        groups = [{"params": net_params, "lr": base_lr}]
+        if em_params:
+            groups.append({"params": em_params, "lr": base_lr * cfg.get("endmember_lr_mult", 10.0),
+                           "weight_decay": 0.0})
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=cfg.get("learning_rate", 1e-4),
+            groups,
+            lr=base_lr,
             weight_decay=cfg.get("weight_decay", 1e-5),
         )
 
