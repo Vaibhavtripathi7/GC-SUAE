@@ -92,6 +92,38 @@ def cluster_latents(
     return labels, km.cluster_centers_, metrics
 
 
+def spatial_coherence(labels: np.ndarray, patch_coords, stride: int) -> float:
+    """
+    Fraction of 4-connected neighbouring patch pairs that share a cluster label.
+
+    Computed on the patch grid rather than in latent space, so it is not
+    inflated by a collapsed or over-compact embedding the way Silhouette can be.
+    A random labelling of K balanced clusters scores ~1/K.
+    """
+    pos = {tuple(rc): i for i, rc in enumerate(patch_coords[:len(labels)])}
+    same = total = 0
+    for (r, c), i in pos.items():
+        for nb in ((r + stride, c), (r, c + stride)):
+            j = pos.get(nb)
+            if j is not None:
+                total += 1
+                same  += int(labels[i] == labels[j])
+    return same / total if total else float("nan")
+
+
+def nearest_endmember_sam_deg(cluster_spectra: np.ndarray, endmembers: np.ndarray) -> np.ndarray:
+    """
+    SAM (degrees) from each cluster's mean spectrum to its closest library
+    endmember. Continuous counterpart of the thresholded identification count.
+
+    Returns: (n_clusters,) array.
+    """
+    cs = cluster_spectra / (np.linalg.norm(cluster_spectra, axis=1, keepdims=True) + 1e-8)
+    em = endmembers / (np.linalg.norm(endmembers, axis=1, keepdims=True) + 1e-8)
+    cos = np.clip(cs @ em.T, -1.0, 1.0)
+    return np.degrees(np.arccos(cos).min(axis=1))
+
+
 def compute_cluster_spectra(
     model: torch.nn.Module,
     loader: DataLoader,

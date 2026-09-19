@@ -29,7 +29,9 @@ from utils.evaluation import (
     figure1_main_results,
     figure2_mineral_map,
     figure3_ablation_table_figure,
+    nearest_endmember_sam_deg,
     print_results_table,
+    spatial_coherence,
 )
 from utils.trainer import Trainer, set_seed
 
@@ -41,7 +43,7 @@ def load_config(path: str) -> dict:
 
 def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
                    train_loader, val_loader, full_loader, dataset, endmember_lib,
-                   output_dir: str, device: torch.device) -> dict:
+                   output_dir: str, device: torch.device, seed: int = 42) -> dict:
     """Train one model variant and return its evaluation metrics."""
 
     print(f"\n{'='*60}")
@@ -135,7 +137,7 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
     print(f"\n[Ablation] Evaluating {model_name}...")
 
     latents, feo_means, slope_means = extract_latents(model, full_loader, device)
-    labels, centers, cluster_metrics = cluster_latents(latents, n_clusters=10)
+    labels, centers, cluster_metrics = cluster_latents(latents, n_clusters=10, seed=seed)
     sam_metrics = compute_sam_reconstruction(model, val_loader, device)
 
     # Mineral identification
@@ -144,6 +146,8 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
 
     n_identified = sum(1 for x in mineral_assignments if x is not None)
     mineral_id_acc = n_identified / len(mineral_assignments)
+    nearest_sam = nearest_endmember_sam_deg(cluster_spectra, endmember_lib.spectra)
+    coherence   = spatial_coherence(labels, dataset.indices, dataset.stride)
 
     metrics = {
         **cluster_metrics,
@@ -151,6 +155,10 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         "mineral_id_accuracy":   round(mineral_id_acc, 4),
         "mineral_assignments":   mineral_assignments,
         "n_identified_clusters": n_identified,
+        "nearest_endmember_sam_deg_mean": round(float(nearest_sam.mean()), 3),
+        "nearest_endmember_sam_deg_min":  round(float(nearest_sam.min()), 3),
+        "spatial_coherence":     round(float(coherence), 4),
+        "seed":                  seed,
     }
 
     # Save metrics. numpy/torch scalars aren't JSON-serializable, so unwrap any
@@ -165,7 +173,9 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
     print(f"  Silhouette:  {metrics['silhouette_score']:.4f}")
     print(f"  DB Index:    {metrics['davies_bouldin_index']:.4f}")
     print(f"  Mean SAM:    {metrics['mean_sam_deg']:.3f}°")
-    print(f"  Mineral ID:  {n_identified}/10 clusters identified")
+    print(f"  Mineral ID:  {n_identified}/10 clusters identified "
+          f"(nearest-endmember SAM mean {nearest_sam.mean():.2f}°, min {nearest_sam.min():.2f}°)")
+    print(f"  Coherence:   {coherence:.4f}")
 
     return metrics, labels, cluster_spectra, feo_means
 
@@ -173,15 +183,30 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Override experiment.seed (used for multi-seed runs).")
+    parser.add_argument("--models", default=None,
+                        help="Comma-separated subset of model keys from the config, e.g. "
+                             "'pooled_attn_fusion,gcsuae_no_tagcl'. Default: all.")
+    parser.add_argument("--output-dir", default=None,
+                        help="Override experiment.output_dir.")
     args = parser.parse_args()
 
     cfg    = load_config(args.config)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    seed   = cfg.get("experiment", {}).get("seed", 42)
+    seed   = args.seed if args.seed is not None else cfg.get("experiment", {}).get("seed", 42)
     set_seed(seed)
 
-    output_dir = cfg.get("experiment", {}).get("output_dir", "outputs/ablation")
+    output_dir = args.output_dir or cfg.get("experiment", {}).get("output_dir", "outputs/ablation")
     os.makedirs(output_dir, exist_ok=True)
+    print(f"[Ablation] seed={seed}  output_dir={output_dir}")
+
+    if args.models:
+        wanted = [k.strip() for k in args.models.split(",")]
+        missing = [k for k in wanted if k not in cfg["models"]]
+        if missing:
+            sys.exit(f"Unknown model keys {missing}; available: {list(cfg['models'])}")
+        cfg["models"] = {k: cfg["models"][k] for k in wanted}
 
     # Build shared dataset
     data_cfg = cfg["data"]
@@ -223,7 +248,7 @@ def main():
         metrics, labels, cluster_spectra, feo_means = run_one_model(
             model_name, model_cfg_override, cfg,
             train_loader, val_loader, full_loader,
-            dataset, endmember_lib, output_dir, device,
+            dataset, endmember_lib, output_dir, device, seed=seed,
         )
         all_results[model_name] = metrics
 
