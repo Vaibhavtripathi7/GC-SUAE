@@ -132,6 +132,9 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         trainer.load_checkpoint(ckpt_path)
     else:
         trainer.fit()
+        # Evaluate the best-val-loss weights, not whatever the last epoch left,
+        # so this path and the reload path above measure the same model.
+        trainer.load_checkpoint(ckpt_path)
 
     # Evaluation
     print(f"\n[Ablation] Evaluating {model_name}...")
@@ -190,6 +193,8 @@ def main():
                              "'pooled_attn_fusion,gcsuae_no_tagcl'. Default: all.")
     parser.add_argument("--output-dir", default=None,
                         help="Override experiment.output_dir.")
+    parser.add_argument("--num-workers", type=int, default=2,
+                        help="DataLoader workers. Use 0 where the start method is not fork.")
     args = parser.parse_args()
 
     cfg    = load_config(args.config)
@@ -228,10 +233,10 @@ def main():
     g = torch.Generator().manual_seed(seed)
     train_ds, val_ds, _ = random_split(dataset, [n_train, n_val, n_test], generator=g)
 
-    bs = 4
-    train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True,  num_workers=2)
-    val_loader   = DataLoader(val_ds,   batch_size=bs, shuffle=False, num_workers=2)
-    full_loader  = DataLoader(dataset,  batch_size=bs, shuffle=False, num_workers=2)
+    bs, nw = 4, args.num_workers
+    train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True,  num_workers=nw)
+    val_loader   = DataLoader(val_ds,   batch_size=bs, shuffle=False, num_workers=nw)
+    full_loader  = DataLoader(dataset,  batch_size=bs, shuffle=False, num_workers=nw)
 
     # Load endmember library
     endmember_lib = EndmemberLibrary(

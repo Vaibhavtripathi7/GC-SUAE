@@ -135,18 +135,24 @@ def compute_cluster_spectra(
     Compute mean spectral signature for each cluster by averaging
     IIRS patches assigned to each cluster.
 
-    Returns: (n_clusters, n_bands) mean spectra
+    Patches are stored min-max normalised, (x - vmin) / (vmax - vmin). SAM is
+    invariant to the scale but not to the vmin shift, so the mean is mapped
+    back to reflectance units before it is compared against the library.
+
+    Returns: (n_clusters, n_bands) mean spectra in reflectance units
     """
 
     model.eval()
-    cluster_sums   = np.zeros((n_clusters, loader.dataset.n_bands))
+    ds = loader.dataset
+    vmin, vmax = getattr(ds, "iirs_min", 0.0), getattr(ds, "iirs_max", 1.0)
+    cluster_sums   = np.zeros((n_clusters, ds.n_bands))
     cluster_counts = np.zeros(n_clusters)
     idx = 0
 
     with torch.no_grad():
         for batch in loader:
             B = batch["iirs"].shape[0]
-            iirs_np = batch["iirs"].numpy()  # (B, n_bands, H, W)
+            iirs_np = batch["iirs"].numpy() * (vmax - vmin) + vmin  # (B, n_bands, H, W)
             for b in range(B):
                 if idx < len(labels):
                     # Mean spectrum of this patch
@@ -389,7 +395,7 @@ def figure3_ablation_table_figure(
     for row_idx, model_name in enumerate(df.index):
         if "NoTAGCL" in model_name or model_name == "GC_SUAE_NoTAGCL":
             for j in range(len(df.columns)):
-                cell = table[row_idx + 1, j + 1]
+                cell = table[row_idx + 1, j]
                 cell.set_facecolor("#d4f1d4")
                 cell.set_text_props(fontweight="bold")
 
