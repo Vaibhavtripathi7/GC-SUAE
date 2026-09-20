@@ -62,7 +62,7 @@ models:
     name: "GC_SUAE"
     latent_dim: 128
     epochs: 100
-    description: "Proposed: spatial deformable cross-attention + TAGCL + LMM decoder"
+    description: "Proposed: spatial cross-attention (positional) + TAGCL + LMM decoder"
     lambda_tagcl_max: 0.5
     lambda_feo: 0.1
     lambda_dem: 0.05

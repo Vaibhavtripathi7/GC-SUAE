@@ -97,7 +97,9 @@ def run_one_model(model_name: str, model_cfg_override: dict, shared_cfg: dict,
         "feo_threshold":   shared_cfg["data"].get("feo_positive_threshold", 0.05),
         "slope_threshold": shared_cfg["data"].get("slope_positive_threshold", 0.1),
         "temperature":     0.07,
-        "queue_size":      4096,
+        # Queue no larger than the training set: with 4096 slots and ~360
+        # patches every patch sat in the queue ~11 times.
+        "queue_size":      min(4096, max(64, len(train_loader.dataset) // 2)),
         "d_model":         latent_dim,
         "momentum":        0.999,
     } if use_tagcl else {}

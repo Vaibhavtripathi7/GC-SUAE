@@ -185,7 +185,7 @@ class TestLosses:
         z_k = torch.randn(BATCH_SIZE, LATENT_DIM)
         feo   = torch.rand(BATCH_SIZE) * 0.05   # close → positives
         slope = torch.rand(BATCH_SIZE) * 0.1
-        loss = tagcl(z_q, z_k, feo, slope)
+        loss = tagcl(z_q, z_k, feo, slope, torch.arange(z_q.shape[0]))
         assert not torch.isnan(loss), "TAGCL loss is NaN"
         assert loss.item() >= 0
 

@@ -338,14 +338,22 @@ class SpatialCrossAttention(nn.Module):
     rather than pooled vectors. Each query position attends over all context
     positions: softmax(QK^T / sqrt(d_head)) V, with a residual back to the query
     so IIRS features are preserved.
+
+    A learned positional embedding is added to both query and context before
+    projection. Without it the operation is permutation-invariant over
+    context positions, so a query cannot tell which context position is
+    co-located with it and the co-registration of the modalities is unusable.
     """
-    def __init__(self, d_model: int = 256, n_heads: int = 8):
+    def __init__(self, d_model: int = 256, n_heads: int = 8, spatial_size: int = 16):
         super().__init__()
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_head  = d_model // n_heads
         self.scale   = self.d_head ** -0.5
+
+        self.pos_embed = nn.Parameter(torch.zeros(1, d_model, spatial_size, spatial_size))
+        nn.init.trunc_normal_(self.pos_embed, std=0.02)
 
         self.q_proj   = nn.Conv2d(d_model, d_model, 1, bias=False)
         self.k_proj   = nn.Conv2d(d_model, d_model, 1, bias=False)
@@ -360,8 +368,12 @@ class SpatialCrossAttention(nn.Module):
     ) -> torch.Tensor:
         B, C, H, W = query.shape
 
-        q = self.q_proj(query)    # (B, C, H, W)
-        k = self.k_proj(context)
+        pos = self.pos_embed
+        if pos.shape[-2:] != (H, W):
+            pos = F.interpolate(pos, size=(H, W), mode="bilinear", align_corners=False)
+
+        q = self.q_proj(query + pos)    # (B, C, H, W)
+        k = self.k_proj(context + pos)
         v = self.v_proj(context)
 
         # Split heads: (B, C, H, W) → (B*n_heads, HW, d_head)
@@ -533,7 +545,6 @@ class GC_SUAE(nn.Module):
         patch_size: int = 64,
         d_model: int = 256,
         n_heads: int = 8,
-        n_deform_points: int = 4,
     ):
         super().__init__()
         self.latent_dim = latent_dim
@@ -548,9 +559,9 @@ class GC_SUAE(nn.Module):
         self.terrain_proj = nn.Conv2d(d_model // 2, d_model, 1)
         self.feo_proj     = nn.Conv2d(d_model // 2, d_model, 1)
 
-        # Deformable cross-attention fusion (two stages)
-        self.attn_terrain = SpatialCrossAttention(d_model, n_heads)
-        self.attn_feo     = SpatialCrossAttention(d_model, n_heads)
+        # Spatial cross-attention fusion (two stages) on H/4 x W/4 maps
+        self.attn_terrain = SpatialCrossAttention(d_model, n_heads, spatial_size=patch_size // 4)
+        self.attn_feo     = SpatialCrossAttention(d_model, n_heads, spatial_size=patch_size // 4)
 
         # Bottleneck: spatial feature map → latent vector
         self.bottleneck = nn.Sequential(

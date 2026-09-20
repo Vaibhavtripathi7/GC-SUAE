@@ -51,6 +51,9 @@ class TAGCLLoss(nn.Module):
         self.register_buffer("queue",       F.normalize(torch.randn(queue_size, d_model), dim=1))
         self.register_buffer("queue_feo",   torch.zeros(queue_size))
         self.register_buffer("queue_slope", torch.zeros(queue_size))
+        # Patch identity of each queued key, so a patch's own embeddings from
+        # earlier steps are never counted as positives (or negatives) for it.
+        self.register_buffer("queue_idx",   torch.full((queue_size,), -1, dtype=torch.long))
         self.register_buffer("queue_ptr",   torch.zeros(1, dtype=torch.long))
         # Track how many slots are actually filled (for warmup correctness)
         self.register_buffer("queue_filled", torch.zeros(1, dtype=torch.long))
@@ -61,6 +64,7 @@ class TAGCLLoss(nn.Module):
         keys: torch.Tensor,
         feo_means: torch.Tensor,
         slope_means: torch.Tensor,
+        patch_idx: torch.Tensor,
     ):
         """Update the memory queue with the current batch."""
         B = keys.shape[0]
@@ -72,6 +76,7 @@ class TAGCLLoss(nn.Module):
         self.queue[ptr:end]       = keys[:n]
         self.queue_feo[ptr:end]   = feo_means[:n]
         self.queue_slope[ptr:end] = slope_means[:n]
+        self.queue_idx[ptr:end]   = patch_idx[:n]
 
         if n < B:
             # Wrap around
@@ -79,6 +84,7 @@ class TAGCLLoss(nn.Module):
             self.queue[:remainder]       = keys[n:]
             self.queue_feo[:remainder]   = feo_means[n:]
             self.queue_slope[:remainder] = slope_means[n:]
+            self.queue_idx[:remainder]   = patch_idx[n:]
             self.queue_ptr[0] = remainder
         else:
             self.queue_ptr[0] = end % self.queue_size
@@ -120,14 +126,20 @@ class TAGCLLoss(nn.Module):
         z_key: torch.Tensor,        # (B, d_model) - momentum encoder latents
         feo_means: torch.Tensor,    # (B,) - batch FeO means
         slope_means: torch.Tensor,  # (B,) - batch slope means
+        patch_idx: torch.Tensor,    # (B,) - dataset index of each patch
     ) -> torch.Tensor:
         """
         Computes TAGCL loss.
 
         Uses supervised contrastive formulation: for each query, positives are
-        geochemically similar patches in the queue; negatives are dissimilar patches.
+        geochemically similar patches in the queue; negatives are dissimilar
+        patches. Keys that belong to the same patch as the query (in-batch or
+        queued from earlier steps) are excluded from both numerator and
+        denominator; with a queue larger than the dataset they would otherwise
+        dominate the positive set.
         """
         B = z_query.shape[0]
+        patch_idx = patch_idx.detach().to(z_query.device)
 
         q = F.normalize(z_query, dim=1)            # (B, d)
         k = F.normalize(z_key, dim=1).detach()     # (B, d)
@@ -138,19 +150,20 @@ class TAGCLLoss(nn.Module):
         queue_k  = self.queue[:q_filled].clone().detach().to(device)   # (Q_actual, d)
         queue_f  = self.queue_feo[:q_filled].clone().to(device)
         queue_s  = self.queue_slope[:q_filled].clone().to(device)
+        queue_i  = self.queue_idx[:q_filled].clone().to(device)
 
         # All keys = current batch keys + filled queue
         all_keys   = torch.cat([k, queue_k], dim=0)            # (B+Q_actual, d)
         all_feo    = torch.cat([feo_means.detach().to(device), queue_f], dim=0)
         all_slopes = torch.cat([slope_means.detach().to(device), queue_s], dim=0)
+        all_idx    = torch.cat([patch_idx, queue_i], dim=0)
 
         N = all_keys.shape[0]  # B + Q_actual (varies during warmup)
 
         sim = torch.mm(q, all_keys.T) / self.T     # (B, N)
 
-        # Self-mask: exclude query_i vs key_i (within current batch only)
-        self_mask = torch.zeros(B, N, dtype=torch.bool, device=q.device)
-        self_mask[:, :B] = torch.eye(B, dtype=torch.bool, device=q.device)
+        # Self-mask: every key that is the same patch as the query
+        self_mask = patch_idx.unsqueeze(1) == all_idx.unsqueeze(0)   # (B, N)
 
         # Build pair masks (applied AFTER self-mask to avoid false positives)
         pos_mask, _ = self._build_pair_mask(
@@ -161,7 +174,7 @@ class TAGCLLoss(nn.Module):
         # Only compute loss for queries that have at least one valid positive
         has_positive = pos_mask.any(dim=1)                      # (B,)
         if not has_positive.any():
-            self._dequeue_and_enqueue(k, feo_means, slope_means)
+            self._dequeue_and_enqueue(k, feo_means, slope_means, patch_idx)
             return torch.tensor(0.0, device=z_query.device, requires_grad=True)
 
         # Numerator: log-sum-exp over positives
@@ -176,7 +189,7 @@ class TAGCLLoss(nn.Module):
         loss_per = -(log_num - log_den).clamp(min=-100.0)
         loss     = loss_per[has_positive].mean()
 
-        self._dequeue_and_enqueue(k, feo_means, slope_means)
+        self._dequeue_and_enqueue(k, feo_means, slope_means, patch_idx)
         return loss
 
 
@@ -284,6 +297,7 @@ class CombinedLoss(nn.Module):
                 z_momentum,
                 batch["feo_mean"],
                 batch["slope_mean"],
+                batch["patch_idx"],
             )
 
         total = (
